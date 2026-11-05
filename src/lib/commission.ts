@@ -5,11 +5,17 @@
  * A future per-rep dashboard should import this module rather than reimplementing pay.
  *
  * Prices exclude the 4% fee. Charged amounts are pre-fee job totals.
+ * Commission is never negative.
  *
  * - Charged >= list: commission = rate × charged
- * - Undersold: base = list − 0.5 × (list − charged); commission = rate × base
- *   Example: list $500, sold $400 → base $450; at 15% → $67.50
- * - List cannot be computed: base = charged, listVerified = false ("list not verified")
+ *   Example: list $1,000, rate 5%, sold $1,100 → $55
+ * - Undersold by less than 10% of list: commission = rate × list − 0.5 × (list − charged)
+ *   Example: list $1,000, rate 5%, sold $950 → $50 − $25 = $25
+ * - Charged <= 90% of list: commission = $0 unless managerApproved, which uses the
+ *   undersold formula above and still clamps at $0
+ *   Example: list $1,000, rate 5%, sold $900 → $0
+ * - List cannot be computed: commission = rate × charged, listVerified = false
+ *   ("list not verified")
  *
  * Only Dana (7%), Amy (5%), Blake (15%), Scott (15%), and John (15%) earn commission.
  */
@@ -84,6 +90,7 @@ export type CommissionStatus =
   | "ok"
   | "oversold"
   | "undersold"
+  | "below_floor"
   | "list_not_verified"
   | "needs_review";
 
@@ -91,11 +98,15 @@ export type CommissionResult = {
   listPrice: number | null;
   charged: number | null;
   difference: number | null;
+  /** Amount the rate multiplies. Null when pay is the undersold formula or the 10% floor. */
   commissionBase: number | null;
   commission: number | null;
   rate: number;
   status: CommissionStatus;
   listVerified: boolean;
+  /** Charged is at or under 90% of list. */
+  belowFloor: boolean;
+  managerApproved: boolean;
   reason: string | null;
 };
 
@@ -125,6 +136,8 @@ export type JobPriceInput = {
   frenchPanes?: number;
   /** Pre-fee list, when accounting already knows it. Replaces the catalog total. */
   listOverride?: number | null;
+  /** Written manager approval. Uses the undersold formula when charged is 10% or more under list. */
+  managerApproved?: boolean;
 };
 
 export type JobPriceResult = {
@@ -137,6 +150,8 @@ export type JobPriceResult = {
   status: CommissionStatus;
   listVerified: boolean;
   needsReview: boolean;
+  belowFloor: boolean;
+  managerApproved: boolean;
   usedOverride: boolean;
   reasons: string[];
   lineAmounts: Array<number | null>;
@@ -155,6 +170,34 @@ function isFiniteNumber(value: number | null | undefined): value is number {
   return value != null && Number.isFinite(value);
 }
 
+function toCents(value: number): number {
+  return Math.round(roundMoney(value) * 100);
+}
+
+/** Payable commission, never below zero. */
+export function clampCommission(amount: number): number {
+  return Math.max(0, roundMoney(amount));
+}
+
+/**
+ * True when charged is at or under 90% of list, compared in cents.
+ * `chargedCents * 10 <= listCents * 9` is the same test as charged <= 0.9 × list.
+ */
+export function isBelowListFloor(listPrice: number, charged: number): boolean {
+  const listCents = toCents(listPrice);
+  const chargedCents = toCents(charged);
+  return chargedCents * 10 <= listCents * 9;
+}
+
+/**
+ * rate × list − half the shortfall, clamped at $0.
+ * Used for a mild undersell and for a below-floor sale that a manager approved.
+ */
+export function undersoldCommission(rate: number, listPrice: number, charged: number): number {
+  const shortfall = roundMoney(roundMoney(listPrice) - roundMoney(charged));
+  return clampCommission(rate * roundMoney(listPrice) - 0.5 * shortfall);
+}
+
 /**
  * Commission for one job from a pre-fee list and a pre-fee charged amount.
  * Mirrors scripts/engine/commission.py.
@@ -163,7 +206,9 @@ export function commissionFromListAndCharged(
   rate: number,
   charged: number | null,
   listPrice: number | null,
+  managerApproved = false,
 ): CommissionResult {
+  const approved = Boolean(managerApproved);
   if (!isFiniteNumber(charged)) {
     return {
       listPrice: isFiniteNumber(listPrice) ? listPrice : null,
@@ -174,6 +219,8 @@ export function commissionFromListAndCharged(
       rate,
       status: "needs_review",
       listVerified: false,
+      belowFloor: false,
+      managerApproved: approved,
       reason: "invalid charged",
     };
   }
@@ -186,37 +233,52 @@ export function commissionFromListAndCharged(
       charged: roundMoney(charged),
       difference: null,
       commissionBase: roundMoney(base),
-      commission: roundMoney(rate * base),
+      commission: clampCommission(rate * base),
       rate,
       status: "list_not_verified",
       listVerified: false,
+      belowFloor: false,
+      managerApproved: approved,
       reason: "list not verified — used charged as base",
     };
   }
 
   const listRounded = roundMoney(listPrice);
-  const difference = roundMoney(charged - listRounded);
-  let base: number;
-  let status: CommissionStatus;
-  if (charged >= listRounded - 1e-9) {
-    base = charged;
-    status = Math.abs(difference) < 0.01 ? "ok" : "oversold";
-  } else {
-    const shortfall = listRounded - charged;
-    base = roundMoney(listRounded - 0.5 * shortfall);
-    status = "undersold";
+  const chargedRounded = roundMoney(charged);
+  const difference = roundMoney(chargedRounded - listRounded);
+
+  if (chargedRounded >= listRounded - 1e-9) {
+    const status: CommissionStatus = Math.abs(difference) < 0.01 ? "ok" : "oversold";
+    return {
+      listPrice: listRounded,
+      charged: chargedRounded,
+      difference,
+      commissionBase: chargedRounded,
+      commission: clampCommission(rate * chargedRounded),
+      rate,
+      status,
+      listVerified: true,
+      belowFloor: false,
+      managerApproved: approved,
+      reason: null,
+    };
   }
 
+  const belowFloor = isBelowListFloor(listRounded, chargedRounded);
+  const formulaPay = undersoldCommission(rate, listRounded, chargedRounded);
+  const waived = belowFloor && !approved;
   return {
     listPrice: listRounded,
-    charged: roundMoney(charged),
+    charged: chargedRounded,
     difference,
-    commissionBase: roundMoney(base),
-    commission: roundMoney(rate * base),
+    commissionBase: null,
+    commission: waived ? 0 : formulaPay,
     rate,
-    status,
+    status: belowFloor ? "below_floor" : "undersold",
     listVerified: true,
-    reason: null,
+    belowFloor,
+    managerApproved: approved,
+    reason: waived ? "below 10% floor" : null,
   };
 }
 
@@ -224,8 +286,9 @@ export function computeCommission(
   rate: number,
   charged: number | null,
   listPrice: number | null,
+  managerApproved = false,
 ): CommissionResult {
-  return commissionFromListAndCharged(rate, charged, listPrice);
+  return commissionFromListAndCharged(rate, charged, listPrice, managerApproved);
 }
 
 /** Unrounded list dollars for one film line, including removal and C-Bond on that SF. */
@@ -304,6 +367,7 @@ export function priceJob(input: JobPriceInput): JobPriceResult {
     input.rate,
     charged,
     list.listVerified ? list.listPrice : null,
+    input.managerApproved,
   );
 
   const reasons: string[] = [];
@@ -312,6 +376,7 @@ export function priceJob(input: JobPriceInput): JobPriceResult {
   if (list.frenchInvalid) reasons.push("French pane count is invalid.");
   if (charged == null) reasons.push("Charged amount is missing.");
   else if (!list.listVerified) reasons.push("List not verified.");
+  else if (pay.belowFloor && !pay.managerApproved) reasons.push("Below 10% floor.");
 
   const needsReview =
     list.missingFilm || list.missingSf || list.frenchInvalid || charged == null;
@@ -326,6 +391,8 @@ export function priceJob(input: JobPriceInput): JobPriceResult {
     status: charged == null ? "needs_review" : pay.status,
     listVerified: list.listVerified && charged != null ? pay.listVerified : list.listVerified,
     needsReview,
+    belowFloor: list.listVerified && charged != null ? pay.belowFloor : false,
+    managerApproved: pay.managerApproved,
     usedOverride: list.usedOverride,
     reasons,
     lineAmounts: list.lineAmounts,

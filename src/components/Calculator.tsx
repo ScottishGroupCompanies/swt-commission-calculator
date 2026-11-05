@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { FilmPicker } from "@/components/FilmPicker";
+import { ScottishLogo } from "@/components/ScottishLogo";
 import {
   REPS,
   commissionRateFor,
@@ -33,6 +34,7 @@ type JobEdit = {
   charged: string;
   frenchPanes: string;
   listOverride: string;
+  managerApproved: boolean;
   lines: LineEdit[];
 };
 
@@ -87,6 +89,7 @@ function jobToEdit(job: SnapshotJob): JobEdit {
     charged: String(job.charged),
     frenchPanes: "0",
     listOverride: "",
+    managerApproved: false,
     lines,
   };
 }
@@ -110,6 +113,7 @@ function priceEdit(rate: number, edit: JobEdit): JobPriceResult {
     charged: parseNumber(edit.charged),
     frenchPanes: parseFrench(edit.frenchPanes),
     listOverride: parseNumber(edit.listOverride),
+    managerApproved: edit.managerApproved,
     lines: edit.lines.map((line) => ({
       sellPerSf: line.sellPerSf,
       sf: parseNumber(line.sf),
@@ -124,10 +128,16 @@ function explain(result: JobPriceResult, rateLabel: string): string {
     return "Enter the pre-fee amount charged to calculate commission.";
   }
   if (!result.listVerified) {
-    return `List not verified, so the base is the charged amount. Commission is ${rateLabel} of that base.`;
+    return `List not verified. Commission is ${rateLabel} of the charged amount.`;
+  }
+  if (result.belowFloor && !result.managerApproved) {
+    return "Below the 10% floor. Commission is $0 unless a manager approved this price in writing.";
+  }
+  if (result.belowFloor && result.managerApproved) {
+    return `Manager approved. Commission is ${rateLabel} of list minus half the shortfall, and it does not go below $0.`;
   }
   if (result.status === "undersold") {
-    return `Undersold. Base is list minus half the shortfall (${formatMoney(result.commissionBase)}). Commission is ${rateLabel} of that base.`;
+    return `Undersold by less than 10%. Commission is ${rateLabel} of list minus half the shortfall.`;
   }
   if (result.status === "oversold") {
     return `Charged is above list, so commission is ${rateLabel} of the charged amount.`;
@@ -135,7 +145,13 @@ function explain(result: JobPriceResult, rateLabel: string): string {
   return `Charged matches list, so commission is ${rateLabel} of the charged amount.`;
 }
 
-export function Calculator({ snapshot }: { snapshot: CommissionSnapshot }) {
+export function Calculator({
+  snapshot,
+  username,
+}: {
+  snapshot: CommissionSnapshot;
+  username: string;
+}) {
   const [repId, setRepId] = useState<Rep["id"]>("dana");
   const [query, setQuery] = useState("");
   const [jobId, setJobId] = useState("");
@@ -186,7 +202,14 @@ export function Calculator({ snapshot }: { snapshot: CommissionSnapshot }) {
   return (
     <div className="wrap">
       <header className="mast">
-        <p className="eyebrow">Scottish Window Tinting</p>
+        <div className="mast-top">
+          <ScottishLogo />
+          <form action="/api/logout" method="post">
+            <button className="text-btn" type="submit">
+              Sign out{username ? ` ${username}` : ""}
+            </button>
+          </form>
+        </div>
         <h1>Commission calculator</h1>
         <p className="lede">
           Pick a sales rep, then one job. Film, square footage, charged amount, and add-ons
@@ -247,6 +270,7 @@ export function Calculator({ snapshot }: { snapshot: CommissionSnapshot }) {
                             {job.dateSold || "No date"} · {formatMoney(job.charged)} charged
                             {preview.needsReview ? " · Needs review" : ""}
                             {!preview.listVerified ? " · List not verified" : ""}
+                            {preview.belowFloor ? " · Below 10% floor" : ""}
                           </span>
                         </button>
                       </li>
@@ -281,6 +305,7 @@ export function Calculator({ snapshot }: { snapshot: CommissionSnapshot }) {
               <div className="badges">
                 {live.needsReview ? <span className="badge review">Needs review</span> : null}
                 {!live.listVerified ? <span className="badge unverified">List not verified</span> : null}
+                {live.belowFloor ? <span className="badge floor">Below 10% floor</span> : null}
                 {live.listVerified && live.status === "undersold" ? (
                   <span className="badge under">Undersold</span>
                 ) : null}
@@ -477,6 +502,22 @@ export function Calculator({ snapshot }: { snapshot: CommissionSnapshot }) {
                 />
               </div>
               <div className="field">
+                <span className="check-caption">Manager approval</span>
+                <label className={live.belowFloor && !edit.managerApproved ? "approval hot" : "approval"}>
+                  <input
+                    type="checkbox"
+                    checked={edit.managerApproved}
+                    onChange={(event) =>
+                      updateEdit(selected, (current) => ({
+                        ...current,
+                        managerApproved: event.target.checked,
+                      }))
+                    }
+                  />
+                  Manager approved in writing
+                </label>
+              </div>
+              <div className="field">
                 <label htmlFor="override">List override (optional, pre-fee)</label>
                 <input
                   id="override"
@@ -531,10 +572,6 @@ export function Calculator({ snapshot }: { snapshot: CommissionSnapshot }) {
                 </dd>
               </div>
               <div>
-                <dt>Commission base</dt>
-                <dd>{formatMoney(live.commissionBase)}</dd>
-              </div>
-              <div>
                 <dt>Rate</dt>
                 <dd>{rateLabel}</dd>
               </div>
@@ -548,11 +585,14 @@ export function Calculator({ snapshot }: { snapshot: CommissionSnapshot }) {
         <p>
           Only Dana (7%), Amy (5%), Blake (15%), Scott (15%), and John (15%) earn commission.
           List and charged amounts exclude the 4% fee. If charged is at or above list, commission
-          is the rate times charged. If the job is undersold, the base is list minus half the
-          shortfall, and commission is the rate times that base. Example: list $500, sold $400,
-          base $450, at 15% is $67.50. If list cannot be computed, the base is the charged amount
-          and the job is marked list not verified. A job missing film or square footage is marked
-          needs review.
+          is the rate times charged. Example: list $1,000 at 5%, sold for $1,100, pays $55. If the
+          job is undersold by less than 10% of list, commission is the rate times list minus half
+          the shortfall. Example: list $1,000 at 5%, sold for $950, pays $50 − $25 = $25. If
+          charged is 10% or more below list, commission is $0 unless a manager approved the price
+          in writing. With that approval, the undersold formula applies and commission does not go
+          below $0. Example: list $1,000 at 5%, sold for $900, pays $0. If list cannot be
+          computed, commission is the rate times charged and the job is marked list not verified.
+          A job missing film or square footage is marked needs review.
         </p>
       </details>
     </div>

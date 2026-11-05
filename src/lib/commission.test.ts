@@ -22,34 +22,60 @@ describe("formatRate", () => {
   });
 });
 
-describe("commissionFromListAndCharged", () => {
-  it("pays 15% of the $450 base when list is $500 and charged is $400", () => {
-    const result = commissionFromListAndCharged(0.15, 400, 500);
-    expect(result.listPrice).toBe(500);
-    expect(result.charged).toBe(400);
-    expect(result.difference).toBe(-100);
-    expect(result.commissionBase).toBe(450);
-    expect(result.commission).toBe(67.5);
-    expect(result.status).toBe("undersold");
-    expect(result.listVerified).toBe(true);
-    expect(result.reason).toBeNull();
-  });
-
-  it("pays the rate on charged when the job is oversold", () => {
-    const result = commissionFromListAndCharged(0.15, 600, 500);
+describe("official commission policy at 5%", () => {
+  it("pays rate times charged when sold above list ($1,000 list, sold $1,100 = $55)", () => {
+    const result = commissionFromListAndCharged(0.05, 1100, 1000);
+    expect(result.commission).toBe(55);
+    expect(result.commissionBase).toBe(1100);
     expect(result.difference).toBe(100);
-    expect(result.commissionBase).toBe(600);
-    expect(result.commission).toBe(90);
     expect(result.status).toBe("oversold");
+    expect(result.belowFloor).toBe(false);
     expect(result.listVerified).toBe(true);
   });
 
+  it("pays rate times list minus half the shortfall when undersold by less than 10% ($950 = $25)", () => {
+    const result = commissionFromListAndCharged(0.05, 950, 1000);
+    expect(result.difference).toBe(-50);
+    expect(result.commission).toBe(25);
+    expect(result.status).toBe("undersold");
+    expect(result.belowFloor).toBe(false);
+    expect(result.managerApproved).toBe(false);
+  });
+
+  it("pays $0 when charged is 10% or more below list ($900) unless a manager approved it", () => {
+    const blocked = commissionFromListAndCharged(0.05, 900, 1000);
+    expect(blocked.commission).toBe(0);
+    expect(blocked.status).toBe("below_floor");
+    expect(blocked.belowFloor).toBe(true);
+    expect(blocked.reason).toMatch(/below 10% floor/i);
+
+    const approved = commissionFromListAndCharged(0.05, 900, 1000, true);
+    expect(approved.managerApproved).toBe(true);
+    expect(approved.belowFloor).toBe(true);
+    expect(approved.status).toBe("below_floor");
+    // 5% of $1,000 minus half of the $100 shortfall is $0.
+    expect(approved.commission).toBe(0);
+  });
+
+  it("uses the undersold formula when a manager approves a deeper discount, and clamps at $0", () => {
+    const approved = commissionFromListAndCharged(0.15, 900, 1000, true);
+    expect(approved.belowFloor).toBe(true);
+    expect(approved.commission).toBe(100);
+
+    const clamped = commissionFromListAndCharged(0.05, 800, 1000, true);
+    expect(clamped.belowFloor).toBe(true);
+    expect(clamped.commission).toBe(0);
+  });
+});
+
+describe("commissionFromListAndCharged", () => {
   it("pays the rate on charged when charged equals list", () => {
     const result = commissionFromListAndCharged(0.07, 500, 500);
     expect(result.difference).toBe(0);
     expect(result.commissionBase).toBe(500);
     expect(result.commission).toBe(35);
     expect(result.status).toBe("ok");
+    expect(result.belowFloor).toBe(false);
   });
 
   it("uses charged as the base and flags list not verified when list is missing", () => {
@@ -59,6 +85,7 @@ describe("commissionFromListAndCharged", () => {
     expect(result.commissionBase).toBe(400);
     expect(result.commission).toBe(60);
     expect(result.listVerified).toBe(false);
+    expect(result.belowFloor).toBe(false);
     expect(result.status).toBe("list_not_verified");
     expect(result.reason).toMatch(/list not verified/i);
   });
@@ -69,14 +96,17 @@ describe("commissionFromListAndCharged", () => {
     expect(result.commissionBase).toBeNull();
     expect(result.status).toBe("needs_review");
     expect(result.listVerified).toBe(false);
+    expect(result.belowFloor).toBe(false);
   });
 
-  it("rounds an undersold base to cents before applying the rate", () => {
-    const result = commissionFromListAndCharged(0.07, 3282, 4555.24);
-    expect(result.difference).toBe(-1273.24);
-    expect(result.commissionBase).toBe(3918.62);
-    expect(result.commission).toBe(274.3);
-    expect(result.status).toBe("undersold");
+  it("treats a sale exactly at 90% of list as the floor", () => {
+    const result = commissionFromListAndCharged(0.15, 900, 1000);
+    expect(result.belowFloor).toBe(true);
+    expect(result.commission).toBe(0);
+    const justAbove = commissionFromListAndCharged(0.05, 901, 1000);
+    expect(justAbove.belowFloor).toBe(false);
+    expect(justAbove.status).toBe("undersold");
+    expect(justAbove.commission).toBe(0.5);
   });
 });
 
@@ -118,11 +148,11 @@ describe("priceJob", () => {
     });
     expect(result.listPrice).toBe(500);
     expect(result.listPrice).not.toBeCloseTo(500 * 1.04, 2);
-    expect(result.commissionBase).toBe(450);
-    expect(result.commission).toBe(67.5);
+    expect(result.belowFloor).toBe(true);
+    expect(result.commission).toBe(0);
     expect(result.needsReview).toBe(false);
     expect(result.listVerified).toBe(true);
-    expect(result.status).toBe("undersold");
+    expect(result.status).toBe("below_floor");
   });
 
   it("adds removal and C-Bond at $1.25 per SF and French panes at $3", () => {
@@ -174,9 +204,11 @@ describe("priceJob", () => {
     expect(result.usedOverride).toBe(true);
     expect(result.listVerified).toBe(true);
     expect(result.listPrice).toBe(500);
-    expect(result.commission).toBe(67.5);
+    expect(result.belowFloor).toBe(true);
+    expect(result.commission).toBe(0);
     expect(result.needsReview).toBe(true);
     expect(result.reasons.join(" ")).toMatch(/Film is missing/);
+    expect(result.reasons.join(" ")).toMatch(/Below 10% floor/);
     expect(result.reasons.join(" ")).not.toMatch(/List not verified/);
   });
 
@@ -225,10 +257,26 @@ describe("bundled snapshot jobs", () => {
     });
     expect(result.listPrice).toBe(4555.24);
     expect(result.difference).toBe(-1273.24);
-    expect(result.commissionBase).toBe(3918.62);
-    expect(result.commission).toBe(274.3);
+    expect(result.belowFloor).toBe(true);
+    expect(result.commission).toBe(0);
     expect(result.needsReview).toBe(false);
-    expect(result.status).toBe("undersold");
+    expect(result.status).toBe("below_floor");
+    expect(result.reasons.join(" ")).toMatch(/Below 10% floor/);
+
+    const approved = priceJob({
+      rate: commissionRateFor(helibrun.designer) ?? 0,
+      charged: helibrun.charged,
+      managerApproved: true,
+      lines: helibrun.films.map((film) => ({
+        sellPerSf: film.sellPerSf,
+        sf: film.sf,
+        removal: film.removal,
+        cBond: film.cBond,
+      })),
+    });
+    expect(approved.managerApproved).toBe(true);
+    expect(approved.belowFloor).toBe(true);
+    expect(approved.commission).toBe(0);
   });
 
   it("flags Dorhout needs review and pays 15% of charged", () => {

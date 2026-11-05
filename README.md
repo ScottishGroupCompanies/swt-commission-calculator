@@ -18,20 +18,35 @@ Only these reps earn commission:
 | Scott Gafney | 15% |
 | John | 15% |
 
-- If charged is at or above list, commission = rate × charged.
-- If undersold, base = list − 0.5 × (list − charged), and commission = rate × base.
-- Example: list $500, sold $400, base $450. At 15% the commission is **$67.50**.
-- If list cannot be computed, the base is the charged amount and the job is marked **list not verified**.
+- If charged is at or above list, commission = rate × charged. List $1,000 at 5%, sold for $1,100, pays **$55**.
+- If undersold by less than 10% of list, commission = rate × list − 0.5 × (list − charged). List $1,000 at 5%, sold for $950, pays $50 − $25 = **$25**.
+- If charged is at or under 90% of list, commission is **$0** unless a manager approved the price in writing. With that approval, the undersold formula applies and commission does not go below $0. List $1,000 at 5%, sold for $900, pays **$0**.
+- If list cannot be computed, commission = rate × charged and the job is marked **list not verified**.
 - A job missing film or square footage is marked **needs review**.
 
 List price is V-10.9 catalog sell $/SF × billed square feet, plus removal ($1.25/SF), C-Bond ($1.25/SF), and French panes ($3 each). An optional list override replaces that total when accounting already knows the pre-fee list.
 
-The math lives in [`src/lib/commission.ts`](src/lib/commission.ts). A future per-rep dashboard should import `priceJob` from that module instead of reimplementing it. The Python file [`scripts/engine/commission.py`](scripts/engine/commission.py) is the original reference for the same rules.
+The math lives in [`src/lib/commission.ts`](src/lib/commission.ts). A future per-rep dashboard should import `priceJob` from that module instead of reimplementing it. [`scripts/engine/commission.py`](scripts/engine/commission.py) is the same policy for the data builder.
+
+## Sign in
+
+The calculator is behind a login. The temporary accounts are **Kelly**, **Sarah**, and **admin**, each with password `1234`. Passwords are stored as scrypt hashes in [`src/lib/auth/users.ts`](src/lib/auth/users.ts), not as plaintext.
+
+Change one password:
+
+```bash
+node scripts/hash-password.mjs "a-new-password"
+```
+
+Paste the printed hash over that user's `passwordHash`. To replace the whole list without editing code, set `AUTH_USERS` to a JSON array of `{ "username", "passwordHash" }`.
+
+Sessions are a signed httpOnly cookie (`sgc_session`, 12 hours). Set `AUTH_SECRET` to a long random string in `.env.local` and in the Vercel project for Production, Preview, and Development. Next.js 16 runs the gate in [`src/proxy.ts`](src/proxy.ts). That file is the request middleware: it checks the cookie before every page and API route. `/login` and `/api/login` stay public.
 
 ## Run locally
 
 ```bash
 npm install
+# create .env.local with AUTH_SECRET=...
 npm test
 npm run dev
 ```
@@ -40,7 +55,7 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## Deploy on Vercel
 
-No environment variables are required for the bundled snapshot.
+Set `AUTH_SECRET` on the Vercel project (Production, Preview, and Development) before deploying. The snapshot itself needs no other variables. The temporary passwords live in the repo as hashes.
 
 1. Import this repository as a Next.js project.
 2. Leave the build command as `npm run build` and the output as the Next.js default.

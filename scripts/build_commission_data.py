@@ -378,11 +378,12 @@ def compute_list(films, override_list=None):
 
 
 def commission(rate, list_prefee, charged_prefee):
-    """Owner-confirmed (2026-11-05): prices exclude 4% fees.
+    """Official policy. Prices exclude 4% fees. Pay is never negative.
 
     charged >= list → commission = rate × charged
-    undersold → base = list − 0.5×(list−charged); commission = rate × base
-    no list → base = charged (list not verified)
+    undersold by < 10% → rate × list − 0.5 × shortfall
+    charged <= 90% of list → $0 unless a manager approved in writing
+    no list → rate × charged (list not verified)
     """
     import sys
     sys.path.insert(0, str(ROOT / "scripts"))
@@ -399,7 +400,7 @@ def commission(rate, list_prefee, charged_prefee):
             sale = round(rate * charged_prefee, 2)
             ou = 0.0
         else:
-            # undersold: total = rate * base; show base components
+            # Mild undersell and the approved floor both use rate × list − half the shortfall.
             sale = round(rate * r["listPrice"], 2)
             ou = round(r["commission"] - sale, 2)
     elif not r["listVerified"] and charged_prefee is not None:
@@ -474,6 +475,8 @@ def assemble():
                 reasons.append("cannot compute list")
         if status == "undersold":
             reasons.append("undersold vs list")
+        if status == "below_floor":
+            reasons.append("below 10% floor")
         if status == "needs_review":
             flagged += 1
 
@@ -514,7 +517,7 @@ def assemble():
         "asOf": as_of,
         "asOfIso": datetime.now().astimezone().isoformat(),
         "rates": RATES,
-        "policyNote": "Negative commission shown as calculated. Accounting policy pending (flagged).",
+        "policyNote": "Commission is $0 when charged is 10% or more below list, unless a manager approved the price in writing. Pay is never negative.",
         "jobCount": len(jobs_out),
         "flaggedCount": flagged,
         "withLinesCount": with_lines,
