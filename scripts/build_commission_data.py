@@ -437,11 +437,17 @@ def assemble():
         films, fee, flags = [], 0.0, []
         est_number = None
         books_total = None
+        quote_status = None
+        accepted_date = None
+        salesperson = None
         if estimate_id and (DETAILS / f"{estimate_id}.json").exists():
             est = json.load(open(DETAILS / f"{estimate_id}.json"))
             films, fee, flags = compact_lines(est, catalog_by)
             est_number = est.get("estimate_number")
             books_total = est.get("total")
+            quote_status = (est.get("status") or "").strip().lower() or None
+            accepted_date = est.get("accepted_date") or None
+            salesperson = est.get("salesperson_name") or None
             with_lines += 1
         elif not estimate_id:
             flags.append("estimate_not_found")
@@ -495,6 +501,9 @@ def assemble():
             "charged": m["charged"],
             "estimateId": estimate_id,
             "estimateNumber": est_number or (match.get("estimate_number") if match else None),
+            "quoteStatus": quote_status,
+            "acceptedDate": accepted_date,
+            "salesperson": salesperson,
             "booksTotal": books_total if books_total is not None else (match.get("books_total") if match else None),
             "fee": fee,
             "films": films,

@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { formatRate } from "./format";
+import { isSoldQuoteStatus, normalizeQuoteNumber, quoteMatches } from "./quotes";
 import {
   ADDON_RATES,
   EXCLUDED_FEE_RATE,
@@ -19,6 +20,40 @@ describe("formatRate", () => {
     expect(formatRate(0.07)).toBe("7%");
     expect(formatRate(0.05)).toBe("5%");
     expect(formatRate(0.15)).toBe("15%");
+  });
+});
+
+describe("Zoho Books quote status", () => {
+  it("treats only accepted and invoiced quotes as sold", () => {
+    expect(isSoldQuoteStatus("accepted")).toBe(true);
+    expect(isSoldQuoteStatus("Invoiced")).toBe(true);
+    expect(isSoldQuoteStatus("sent")).toBe(false);
+    expect(isSoldQuoteStatus("draft")).toBe(false);
+    expect(isSoldQuoteStatus(null)).toBe(false);
+  });
+
+  it("matches WT-03533 and WT-03533-QT01 as the same quote", () => {
+    const job = { zoho: "WT-03533", estimateNumber: "WT-03533-QT01" };
+    expect(normalizeQuoteNumber("wt-03533-qt01")).toBe("WT-03533");
+    expect(quoteMatches(job, "WT-03533")).toBe(true);
+    expect(quoteMatches(job, "WT-03533-QT01")).toBe(true);
+    expect(quoteMatches(job, "wt 03533")).toBe(false);
+    expect(quoteMatches(job, "WT-03533-QT02")).toBe(true);
+  });
+
+  it("pays $0 when the Books quote is not accepted or invoiced", () => {
+    const result = priceJob({
+      rate: 0.05,
+      charged: 1100,
+      sold: false,
+      lines: [{ sellPerSf: 10, sf: 100 }],
+    });
+    expect(result.listPrice).toBe(1000);
+    expect(result.commission).toBe(0);
+    expect(result.notSold).toBe(true);
+    expect(result.status).toBe("not_sold");
+    expect(result.belowFloor).toBe(false);
+    expect(result.reasons.join(" ")).toBe("Not sold in Zoho Books — no commission.");
   });
 });
 
@@ -244,6 +279,11 @@ describe("bundled snapshot jobs", () => {
     expect(snapshot.catalog).toHaveLength(307);
     const helibrun = job("WT-03533");
     expect(helibrun.designer).toBe("Dana Hojnacki");
+    expect(helibrun.salesperson).toBe("Dana Hojnacki");
+    expect(helibrun.quoteStatus).toBe("invoiced");
+    expect(helibrun.acceptedDate).toBe("2026-10-12");
+    expect(helibrun.dateSold).toBe("10/12/2026");
+    expect(helibrun.estimateNumber).toBe("WT-03533-QT01");
     expect(helibrun.charged).toBe(3282);
     const result = priceJob({
       rate: commissionRateFor(helibrun.designer) ?? 0,
@@ -277,6 +317,27 @@ describe("bundled snapshot jobs", () => {
     expect(approved.managerApproved).toBe(true);
     expect(approved.belowFloor).toBe(true);
     expect(approved.commission).toBe(0);
+  });
+
+  it("pays nothing on a Books quote that was only sent", () => {
+    const sent = job("WT-03130");
+    expect(sent.quoteStatus).toBe("sent");
+    expect(sent.salesperson).toBe("Amy Haley");
+    expect(sent.acceptedDate).toBeNull();
+    const result = priceJob({
+      rate: commissionRateFor(sent.salesperson) ?? 0,
+      charged: sent.charged,
+      sold: isSoldQuoteStatus(sent.quoteStatus),
+      lines: sent.films.map((film) => ({
+        sellPerSf: film.sellPerSf,
+        sf: film.sf,
+        removal: film.removal,
+        cBond: film.cBond,
+      })),
+    });
+    expect(result.commission).toBe(0);
+    expect(result.notSold).toBe(true);
+    expect(result.reasons[0]).toBe("Not sold in Zoho Books — no commission.");
   });
 
   it("flags Dorhout needs review and pays 15% of charged", () => {

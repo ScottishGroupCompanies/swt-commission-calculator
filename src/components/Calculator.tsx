@@ -13,6 +13,7 @@ import {
   type Rep,
 } from "@/lib/commission";
 import { formatMoney, formatRate, formatSell } from "@/lib/format";
+import { isSoldQuoteStatus, quoteMatches } from "@/lib/quotes";
 import type { CatalogFilm, CommissionSnapshot, SnapshotJob } from "@/lib/types";
 
 type LineEdit = {
@@ -96,8 +97,9 @@ function jobToEdit(job: SnapshotJob): JobEdit {
 
 function priceSnapshot(job: SnapshotJob): JobPriceResult {
   return priceJob({
-    rate: commissionRateFor(job.designer) ?? 0,
+    rate: commissionRateFor(job.salesperson) ?? 0,
     charged: job.charged,
+    sold: isSoldQuoteStatus(job.quoteStatus),
     lines: job.films.map((film) => ({
       sellPerSf: film.sellPerSf,
       sf: film.sf,
@@ -107,13 +109,14 @@ function priceSnapshot(job: SnapshotJob): JobPriceResult {
   });
 }
 
-function priceEdit(rate: number, edit: JobEdit): JobPriceResult {
+function priceEdit(rate: number, edit: JobEdit, sold: boolean): JobPriceResult {
   return priceJob({
     rate,
     charged: parseNumber(edit.charged),
     frenchPanes: parseFrench(edit.frenchPanes),
     listOverride: parseNumber(edit.listOverride),
     managerApproved: edit.managerApproved,
+    sold,
     lines: edit.lines.map((line) => ({
       sellPerSf: line.sellPerSf,
       sf: parseNumber(line.sf),
@@ -124,6 +127,9 @@ function priceEdit(rate: number, edit: JobEdit): JobPriceResult {
 }
 
 function explain(result: JobPriceResult, rateLabel: string): string {
+  if (result.notSold) {
+    return "Not sold in Zoho Books — no commission.";
+  }
   if (result.commission == null) {
     return "Enter the pre-fee amount charged to calculate commission.";
   }
@@ -159,19 +165,19 @@ export function Calculator({
 
   const rep = REPS.find((item) => item.id === repId) ?? REPS[0];
   const repJobs = useMemo(
-    () => snapshot.jobs.filter((job) => findRep(job.designer)?.id === rep.id),
+    () => snapshot.jobs.filter((job) => findRep(job.salesperson)?.id === rep.id),
     [snapshot.jobs, rep.id],
   );
 
   const needle = query.trim().toLowerCase();
   const filtered = useMemo(() => {
     if (!needle) return [];
-    return repJobs.filter((job) => {
-      const haystack = [job.zoho, job.jobNumber, job.client, job.estimateNumber || ""]
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(needle);
-    });
+    return repJobs.filter(
+      (job) =>
+        quoteMatches(job, needle) ||
+        job.client.toLowerCase().includes(needle) ||
+        job.jobNumber.toLowerCase().includes(needle),
+    );
   }, [repJobs, needle]);
   const matches = filtered.slice(0, 8);
 
@@ -181,8 +187,8 @@ export function Calculator({
     [selected, edits],
   );
   const live = useMemo(
-    () => (edit ? priceEdit(rep.rate, edit) : null),
-    [edit, rep.rate],
+    () => (edit && selected ? priceEdit(rep.rate, edit, isSoldQuoteStatus(selected.quoteStatus)) : null),
+    [edit, rep.rate, selected],
   );
   const dirty = selected ? edits[selected.id] != null : false;
   const rateLabel = formatRate(rep.rate);
@@ -247,7 +253,7 @@ export function Calculator({
             type="search"
             value={query}
             autoComplete="off"
-            placeholder="ZOHO quote #, job number, or client"
+            placeholder="WT-03533 or WT-03533-QT01"
             onChange={(event) => setQuery(event.target.value)}
           />
           {needle ? (
@@ -268,8 +274,9 @@ export function Calculator({
                           <span className="match-client">{job.client}</span>
                           <span className="match-meta">
                             {job.dateSold || "No date"} · {formatMoney(job.charged)} charged
+                            {preview.notSold ? " · Not sold" : ""}
                             {preview.needsReview ? " · Needs review" : ""}
-                            {!preview.listVerified ? " · List not verified" : ""}
+                            {!preview.notSold && !preview.listVerified ? " · List not verified" : ""}
                             {preview.belowFloor ? " · Below 10% floor" : ""}
                           </span>
                         </button>
@@ -286,7 +293,7 @@ export function Calculator({
             <p className="hint">
               {repJobs.length === 0
                 ? `${rep.name} has no jobs in this snapshot.`
-                : `Search ${rep.shortName}'s jobs by quote, job number, or client.`}
+                : `Search ${rep.shortName}'s Books quotes by WT number.`}
             </p>
           )}
         </div>
@@ -303,16 +310,19 @@ export function Calculator({
                 <h2>{selected.client || "Untitled job"}</h2>
               </div>
               <div className="badges">
+                {live.notSold ? <span className="badge unsold">Not sold</span> : null}
                 {live.needsReview ? <span className="badge review">Needs review</span> : null}
-                {!live.listVerified ? <span className="badge unverified">List not verified</span> : null}
-                {live.belowFloor ? <span className="badge floor">Below 10% floor</span> : null}
-                {live.listVerified && live.status === "undersold" ? (
+                {!live.notSold && !live.listVerified ? (
+                  <span className="badge unverified">List not verified</span>
+                ) : null}
+                {!live.notSold && live.belowFloor ? <span className="badge floor">Below 10% floor</span> : null}
+                {!live.notSold && live.listVerified && live.status === "undersold" ? (
                   <span className="badge under">Undersold</span>
                 ) : null}
-                {live.listVerified && live.status === "oversold" ? (
+                {!live.notSold && live.listVerified && live.status === "oversold" ? (
                   <span className="badge over">Oversold</span>
                 ) : null}
-                {live.listVerified && live.status === "ok" ? (
+                {!live.notSold && live.listVerified && live.status === "ok" ? (
                   <span className="badge ok">At list</span>
                 ) : null}
                 {dirty ? <span className="badge edit">Edited</span> : null}
@@ -330,7 +340,7 @@ export function Calculator({
               </div>
               <div>
                 <dt>Date sold</dt>
-                <dd>{selected.dateSold || "—"}</dd>
+                <dd>{selected.acceptedDate ? selected.dateSold : "—"}</dd>
               </div>
               <div>
                 <dt>Location</dt>
@@ -343,6 +353,10 @@ export function Calculator({
               <div>
                 <dt>Estimate</dt>
                 <dd>{selected.estimateNumber || "—"}</dd>
+              </div>
+              <div>
+                <dt>Books status</dt>
+                <dd>{selected.quoteStatus || "Not in Books"}</dd>
               </div>
             </dl>
 

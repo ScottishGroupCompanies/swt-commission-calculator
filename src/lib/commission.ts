@@ -92,7 +92,8 @@ export type CommissionStatus =
   | "undersold"
   | "below_floor"
   | "list_not_verified"
-  | "needs_review";
+  | "needs_review"
+  | "not_sold";
 
 export type CommissionResult = {
   listPrice: number | null;
@@ -138,6 +139,11 @@ export type JobPriceInput = {
   listOverride?: number | null;
   /** Written manager approval. Uses the undersold formula when charged is 10% or more under list. */
   managerApproved?: boolean;
+  /**
+   * False when the Zoho Books quote is not accepted or invoiced.
+   * Omitted means the caller already knows the quote is sold.
+   */
+  sold?: boolean;
 };
 
 export type JobPriceResult = {
@@ -152,6 +158,7 @@ export type JobPriceResult = {
   needsReview: boolean;
   belowFloor: boolean;
   managerApproved: boolean;
+  notSold: boolean;
   usedOverride: boolean;
   reasons: string[];
   lineAmounts: Array<number | null>;
@@ -363,6 +370,28 @@ export function priceJob(input: JobPriceInput): JobPriceResult {
     listOverride: input.listOverride,
   });
   const charged = isFiniteNumber(input.charged) ? input.charged : null;
+  if (input.sold === false) {
+    return {
+      listPrice: list.listPrice,
+      charged: charged == null ? null : roundMoney(charged),
+      difference:
+        list.listVerified && list.listPrice != null && charged != null
+          ? roundMoney(roundMoney(charged) - list.listPrice)
+          : null,
+      commissionBase: null,
+      commission: 0,
+      rate: input.rate,
+      status: "not_sold",
+      listVerified: list.listVerified,
+      needsReview: list.missingFilm || list.missingSf || list.frenchInvalid,
+      belowFloor: false,
+      managerApproved: Boolean(input.managerApproved),
+      notSold: true,
+      usedOverride: list.usedOverride,
+      reasons: ["Not sold in Zoho Books — no commission."],
+      lineAmounts: list.lineAmounts,
+    };
+  }
   const pay = commissionFromListAndCharged(
     input.rate,
     charged,
@@ -393,6 +422,7 @@ export function priceJob(input: JobPriceInput): JobPriceResult {
     needsReview,
     belowFloor: list.listVerified && charged != null ? pay.belowFloor : false,
     managerApproved: pay.managerApproved,
+    notSold: false,
     usedOverride: list.usedOverride,
     reasons,
     lineAmounts: list.lineAmounts,

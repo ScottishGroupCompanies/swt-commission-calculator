@@ -65,7 +65,11 @@ The page reads the checked-in snapshot at build time. It does not call Zoho.
 
 ## Refresh the snapshot
 
-Job facts and the 307-film catalog are bundled. Commission is not stored in the snapshot; the app calculates it.
+Zoho Books is the source of truth for whether a quote was sold, who sold it, and the date. A job pays commission only when its Books status is **accepted** or **invoiced**. Anything else shows “Not sold in Zoho Books — no commission” and $0. Date sold is the Books `accepted_date`. The rep is the Books salesperson. Dana, Amy, Blake, Scott, and John are the only commissionable reps.
+
+`data/source/books-estimates.json` holds those Books fields. `npm run data:build` copies them onto each job in the snapshot. A future server sync can replace that file, or replace `getCommissionDataSource()` with the reader sketched in `src/lib/data/zoho.ts`, and return the same snapshot shape.
+
+Film lines, square feet, and the pre-fee charged amount still come from the bundled job export. Commission is not stored in the snapshot; the app calculates it.
 
 ```bash
 npm run data:build

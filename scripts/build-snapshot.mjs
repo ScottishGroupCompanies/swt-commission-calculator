@@ -19,8 +19,38 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const jobsPath = path.join(root, "data/source/jobs.json");
+const booksPath = path.join(root, "data/source/books-estimates.json");
 const catalogPath = path.join(root, "data/source/swt-film-catalog.csv");
 const outPath = path.join(root, "src/data/snapshot.json");
+
+const MONTHS = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+function formatAcceptedDate(iso) {
+  if (!iso) return "";
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!match) return iso;
+  return `${Number(match[2])}/${Number(match[3])}/${match[1]}`;
+}
+
+function monthSoldFromAccepted(iso) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+  if (!match) return "";
+  const month = Number(match[2]);
+  return `${month}-${MONTHS[month - 1]}`;
+}
 
 function num(value) {
   if (value == null || value === "") return null;
@@ -73,22 +103,34 @@ function mapFilm(film) {
 }
 
 const source = JSON.parse(readFileSync(jobsPath, "utf8"));
+const books = JSON.parse(readFileSync(booksPath, "utf8"));
+const byEstimateId = new Map(
+  (books.estimates || []).map((estimate) => [estimate.estimateId, estimate]),
+);
 const catalog = parseCatalog(readFileSync(catalogPath, "utf8"));
-const jobs = (source.jobs || []).map((job) => ({
-  id: job.id,
-  client: job.client || "",
-  zoho: job.zoho || "",
-  jobNumber: job.jobNumber || "",
-  designer: job.designer,
-  location: job.location || "",
-  dateSold: job.dateSold || "",
-  monthSold: job.monthSold || "",
-  jobType: job.jobType || "",
-  filmType: job.filmType || "",
-  charged: num(job.charged),
-  estimateNumber: job.estimateNumber || null,
-  films: (job.films || []).map(mapFilm),
-}));
+const jobs = (source.jobs || []).map((job) => {
+  const quote = byEstimateId.get(job.estimateId) || null;
+  const acceptedDate = quote?.acceptedDate || job.acceptedDate || null;
+  return {
+    id: job.id,
+    client: job.client || "",
+    zoho: job.zoho || "",
+    jobNumber: job.jobNumber || "",
+    designer: job.designer,
+    salesperson: quote?.salesperson || job.salesperson || null,
+    location: job.location || "",
+    dateSold: formatAcceptedDate(acceptedDate),
+    acceptedDate,
+    monthSold: monthSoldFromAccepted(acceptedDate),
+    jobType: job.jobType || "",
+    filmType: job.filmType || "",
+    charged: num(job.charged),
+    estimateId: job.estimateId || null,
+    estimateNumber: quote?.estimateNumber || job.estimateNumber || null,
+    quoteStatus: quote?.status || job.quoteStatus || null,
+    films: (job.films || []).map(mapFilm),
+  };
+});
 
 if (!source.asOf || !source.asOfIso) {
   throw new Error("jobs.json is missing asOf / asOfIso");
@@ -103,7 +145,8 @@ const snapshot = {
   asOfIso: source.asOfIso,
   source: "snapshot",
   pricingVersion: "V-10.9",
-  note: "Prices exclude the 4% fee. Charged amounts are master-sheet job totals (pre-fee). Commission is calculated in the app, not stored in this file.",
+  booksAsOf: books.fetchedAt,
+  note: "Zoho Books is the source of truth for quote status, accepted date, and salesperson. Commission is paid only when the quote status is accepted or invoiced. Charged amounts are pre-fee. Commission is calculated in the app, not stored in this file.",
   catalog,
   jobs,
 };
@@ -117,6 +160,8 @@ console.log(
       asOf: snapshot.asOf,
       jobs: snapshot.jobs.length,
       catalog: snapshot.catalog.length,
+      booksEstimates: byEstimateId.size,
+      withQuote: snapshot.jobs.filter((job) => job.quoteStatus).length,
     },
     null,
     2,

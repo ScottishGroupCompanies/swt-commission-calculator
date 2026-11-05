@@ -12,7 +12,7 @@ export default async function LoginPage({
 
   return (
     <main className="login">
-      <ScottishLogo markSize={64} />
+      <ScottishLogo height={64} />
       <h1>Commission calculator</h1>
       <p className="lede">Sign in to look up a job and calculate commission.</p>
       {error === "1" ? (

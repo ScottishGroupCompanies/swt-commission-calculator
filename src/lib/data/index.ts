@@ -17,8 +17,8 @@ function assertSnapshot(data: CommissionSnapshot): CommissionSnapshot {
 const bundled: CommissionSnapshot = assertSnapshot(snapshotJson as CommissionSnapshot);
 
 /**
- * Bundled JSON snapshot. Replace getCommissionDataSource() with a Zoho reader
- * when live Books/Sheet access is approved. Do not put credentials in the repo.
+ * Bundled JSON snapshot. Books quote status, accepted date, and salesperson
+ * are already on each job. A future sync replaces this reader; see zoho.ts.
  */
 export const snapshotSource: CommissionDataSource = {
   kind: "snapshot",
