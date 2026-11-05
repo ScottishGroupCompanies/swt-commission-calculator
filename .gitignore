@@ -1,0 +1,13 @@
+node_modules
+.next
+*.tsbuildinfo
+out
+.vercel
+.env
+.env.*
+!.env.example
+.access_token
+data/raw
+__pycache__
+*.pyc
+.DS_Store
