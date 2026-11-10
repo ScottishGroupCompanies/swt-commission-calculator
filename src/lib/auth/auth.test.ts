@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createSessionToken, readSession } from "./session";
-import { authenticate, verifyPassword } from "./users";
+import { authenticate, LOGIN_OPTIONS, verifyPassword } from "./users";
 
 const ORIGINAL = process.env.AUTH_SECRET;
 
@@ -9,10 +9,16 @@ afterEach(() => {
 });
 
 describe("passwords", () => {
-  it("accepts Kelly, Sarah, and admin with password 1234", () => {
+  it("lists Kelly, Sarah, and Admin in that order", () => {
+    expect(LOGIN_OPTIONS.map((option) => option.label)).toEqual(["Kelly", "Sarah", "Admin"]);
+    expect(LOGIN_OPTIONS.map((option) => option.value)).toEqual(["Kelly", "Sarah", "admin"]);
+  });
+
+  it("accepts Kelly and admin with 1234, and Sarah with 7807", () => {
     expect(authenticate("Kelly", "1234")?.username).toBe("Kelly");
-    expect(authenticate("sarah", "1234")?.username).toBe("Sarah");
+    expect(authenticate("sarah", "7807")?.username).toBe("Sarah");
     expect(authenticate("ADMIN", "1234")?.username).toBe("admin");
+    expect(authenticate("Sarah", "1234")).toBeNull();
   });
 
   it("rejects a wrong password and an unknown user", () => {

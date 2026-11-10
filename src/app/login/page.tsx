@@ -1,5 +1,6 @@
 import { ScottishLogo } from "@/components/ScottishLogo";
 import { safeNextPath } from "@/lib/auth/session";
+import { LOGIN_OPTIONS } from "@/lib/auth/users";
 
 export default async function LoginPage({
   searchParams,
@@ -28,8 +29,14 @@ export default async function LoginPage({
       <form className="login-form" method="post" action="/api/login">
         <input type="hidden" name="next" value={next} />
         <div className="field">
-          <label htmlFor="username">Username</label>
-          <input id="username" name="username" autoComplete="username" required />
+          <label htmlFor="username">Name</label>
+          <select id="username" name="username" autoComplete="username" required defaultValue="Kelly">
+            {LOGIN_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="field">
           <label htmlFor="password">Password</label>

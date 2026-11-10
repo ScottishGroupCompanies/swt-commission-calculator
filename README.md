@@ -30,7 +30,7 @@ The math lives in [`src/lib/commission.ts`](src/lib/commission.ts). A future per
 
 ## Sign in
 
-The calculator is behind a login. The temporary accounts are **Kelly**, **Sarah**, and **admin**, each with password `1234`. Passwords are stored as scrypt hashes in [`src/lib/auth/users.ts`](src/lib/auth/users.ts), not as plaintext.
+The calculator is behind a login. The name dropdown lists **Kelly** (code `1234`), **Sarah** (code `7807`), and **Admin** (code `1234`). Admin uses the same calculator as the other names. Codes are stored as scrypt hashes in [`src/lib/auth/users.ts`](src/lib/auth/users.ts), not as plaintext.
 
 Change one password:
 

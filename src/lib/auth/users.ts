@@ -6,7 +6,8 @@ export type AuthUser = {
 };
 
 /**
- * Temporary accounts. Every hash below is scrypt of the password `1234`.
+ * Login accounts. Hashes are scrypt, not plaintext.
+ * Kelly and admin use code 1234. Sarah uses code 7807.
  *
  * Change one user:
  *   node scripts/hash-password.mjs "their-new-password"
@@ -14,7 +15,15 @@ export type AuthUser = {
  *
  * Replace the whole list without a code change by setting AUTH_USERS to a JSON
  * array of { "username", "passwordHash" }. Usernames are matched without case.
+ *
+ * Admin has no separate screens. It stays last so that login is not removed.
  */
+export const LOGIN_OPTIONS = [
+  { value: "Kelly", label: "Kelly" },
+  { value: "Sarah", label: "Sarah" },
+  { value: "admin", label: "Admin" },
+] as const;
+
 export const DEFAULT_USERS: readonly AuthUser[] = [
   {
     username: "Kelly",
@@ -24,7 +33,7 @@ export const DEFAULT_USERS: readonly AuthUser[] = [
   {
     username: "Sarah",
     passwordHash:
-      "scrypt$16384$8$1$JYF34wN6qO2fMcZGt_s6oA$BxULu7st3s9IA5G10I2DdiWvHVqAmTo6NUh7kK1bPg8",
+      "scrypt$16384$8$1$whljgLiqosRELBMAjZqyTA$0zVcKkZSFspI5SXKBuT0lPfQU3tkEv82wso8eI-_Xjw",
   },
   {
     username: "admin",
