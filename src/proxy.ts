@@ -2,12 +2,18 @@ import { NextResponse, type NextRequest } from "next/server";
 import { readSession, safeNextPath, SESSION_COOKIE } from "@/lib/auth/session";
 
 function isPublic(pathname: string): boolean {
-  return pathname === "/login" || pathname === "/api/login";
+  return (
+    pathname === "/login" ||
+    pathname === "/api/login" ||
+    pathname === "/api/v1" ||
+    pathname.startsWith("/api/v1/")
+  );
 }
 
 /**
  * Next.js 16 request gate (the file previously called middleware).
- * Every page and API route needs a valid signed session cookie.
+ * Pages and the login API need a valid signed session cookie.
+ * /api/v1/* skips the cookie and checks its own bot API key.
  */
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;

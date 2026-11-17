@@ -5,7 +5,6 @@ import { FilmPicker } from "@/components/FilmPicker";
 import { ScottishLogo } from "@/components/ScottishLogo";
 import {
   REPS,
-  commissionRateFor,
   findRep,
   priceJob,
   roundMoney,
@@ -14,6 +13,7 @@ import {
 } from "@/lib/commission";
 import { formatMoney, formatRate, formatSell } from "@/lib/format";
 import { isSoldQuoteStatus, quoteMatches } from "@/lib/quotes";
+import { priceSnapshotJob } from "@/lib/snapshot-price";
 import type { CatalogFilm, CommissionSnapshot, SnapshotJob } from "@/lib/types";
 
 type LineEdit = {
@@ -93,20 +93,6 @@ function jobToEdit(job: SnapshotJob): JobEdit {
     managerApproved: false,
     lines,
   };
-}
-
-function priceSnapshot(job: SnapshotJob): JobPriceResult {
-  return priceJob({
-    rate: commissionRateFor(job.salesperson) ?? 0,
-    charged: job.charged,
-    sold: isSoldQuoteStatus(job.quoteStatus),
-    lines: job.films.map((film) => ({
-      sellPerSf: film.sellPerSf,
-      sf: film.sf,
-      removal: film.removal,
-      cBond: film.cBond,
-    })),
-  });
 }
 
 function priceEdit(rate: number, edit: JobEdit, sold: boolean): JobPriceResult {
@@ -210,11 +196,18 @@ export function Calculator({
       <header className="mast">
         <div className="mast-top">
           <ScottishLogo />
-          <form action="/api/logout" method="post">
-            <button className="text-btn" type="submit">
-              Sign out{username ? ` ${username}` : ""}
-            </button>
-          </form>
+          <div className="mast-actions">
+            {username.toLowerCase() === "admin" ? (
+              <a className="text-btn" href="/admin/usage">
+                API usage
+              </a>
+            ) : null}
+            <form action="/api/logout" method="post">
+              <button className="text-btn" type="submit">
+                Sign out{username ? ` ${username}` : ""}
+              </button>
+            </form>
+          </div>
         </div>
         <h1>Commission calculator</h1>
         <p className="lede">
@@ -263,7 +256,7 @@ export function Calculator({
               ) : (
                 <ul aria-label="Matching jobs">
                   {matches.map((job) => {
-                    const preview = priceSnapshot(job);
+                    const preview = priceSnapshotJob(job);
                     return (
                       <li key={job.id}>
                         <button type="button" onClick={() => pickJob(job)}>

@@ -40,7 +40,7 @@ node scripts/hash-password.mjs "a-new-password"
 
 Paste the printed hash over that user's `passwordHash`. To replace the whole list without editing code, set `AUTH_USERS` to a JSON array of `{ "username", "passwordHash" }`.
 
-Sessions are a signed httpOnly cookie (`sgc_session`, 12 hours). Set `AUTH_SECRET` to a long random string in `.env.local` and in the Vercel project for Production, Preview, and Development. Next.js 16 runs the gate in [`src/proxy.ts`](src/proxy.ts). That file is the request middleware: it checks the cookie before every page and API route. `/login` and `/api/login` stay public.
+Sessions are a signed httpOnly cookie (`sgc_session`, 12 hours). Set `AUTH_SECRET` to a long random string in `.env.local` and in the Vercel project for Production, Preview, and Development. Next.js 16 runs the gate in [`src/proxy.ts`](src/proxy.ts). That file is the request middleware: it checks the cookie before every page and API route. `/login` and `/api/login` stay public. `/api/v1/*` skips the cookie and checks a bot API key instead. See [`docs/BOT_API.md`](docs/BOT_API.md).
 
 ## Run locally
 
@@ -56,6 +56,8 @@ Open [http://localhost:3000](http://localhost:3000).
 ## Deploy on Vercel
 
 Set `AUTH_SECRET` on the Vercel project (Production, Preview, and Development) before deploying. The snapshot itself needs no other variables. The temporary passwords live in the repo as hashes.
+
+The bot API also needs `BOT_API_KEYS` on Production and Preview. Connect a private Vercel Blob store so usage history is kept. Neither the keys nor the usage log belong in git. Details are in [`docs/BOT_API.md`](docs/BOT_API.md).
 
 1. Import this repository as a Next.js project.
 2. Leave the build command as `npm run build` and the output as the Next.js default.

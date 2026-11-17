@@ -49,6 +49,12 @@ button, input, select { font: inherit; color: inherit; }
   gap: 16px;
   margin-bottom: 28px;
 }
+.mast-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+a.text-btn { text-decoration: none; }
 .brand-logo {
   height: 52px;
   width: auto;
@@ -308,6 +314,31 @@ input:focus, select:focus { border-color: var(--navy); box-shadow: 0 0 0 3px rgb
   cursor: pointer;
 }
 .login-submit:hover { background: #15233e; }
+
+.usage-scroll { overflow-x: auto; }
+.usage {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+.usage th, .usage td {
+  text-align: left;
+  vertical-align: top;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.usage th {
+  color: var(--muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.usage td:nth-child(6), .usage td:nth-child(8) {
+  white-space: normal;
+  min-width: 12rem;
+  max-width: 24rem;
+}
 
 @media (max-width: 860px) {
   .finder, .workspace, .split, .money-inputs, .facts { grid-template-columns: 1fr; }
