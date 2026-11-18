@@ -90,6 +90,16 @@ function parseCatalog(csv) {
   return films;
 }
 
+function mapExcluded(line) {
+  return {
+    name: line.name || "",
+    description: line.description || "",
+    amount: num(line.amount) ?? 0,
+    category: line.category || null,
+    reason: line.reason || "Not classified",
+  };
+}
+
 function mapFilm(film) {
   const addons = film.addons || {};
   return {
@@ -138,6 +148,12 @@ const jobs = [...(source.jobs || []), ...(supplemental.jobs || [])].map((job) =>
     jobType: job.jobType || "",
     filmType: job.filmType || "",
     charged: num(job.charged),
+    quoteAmount: job.quoteAmount == null ? null : num(job.quoteAmount),
+    commissionableAmount:
+      job.commissionableAmount == null ? num(job.charged) : num(job.commissionableAmount),
+    excludedLines: Array.isArray(job.excludedLines) ? job.excludedLines.map(mapExcluded) : [],
+    commissionableAmountVerified: job.commissionableAmountVerified !== false,
+    lineItemsAvailable: job.lineItemsAvailable !== false,
     estimateId: job.estimateId || null,
     estimateNumber: quote?.estimateNumber || job.estimateNumber || null,
     quoteStatus: quote?.status || job.quoteStatus || null,
@@ -159,7 +175,7 @@ const snapshot = {
   source: "snapshot",
   pricingVersion: "V-10.9",
   booksAsOf: books.fetchedAt,
-  note: "Zoho Books is the source of truth for quote status, accepted date, and salesperson. Commission is paid only when the quote status is accepted or invoiced. Charged amounts are pre-fee. Commission is calculated in the app, not stored in this file.",
+  note: "Zoho Books is the source of truth for quote status, accepted date, and salesperson. Commission is paid only when the quote status is accepted or invoiced. Charged amounts are the commissionable portion: window film, film removal, C-Bond, and labor-only install. Fees, travel, lifts, and other non-film extras are excluded. Commission is calculated in the app, not stored in this file.",
   catalog,
   jobs,
 };
@@ -176,6 +192,8 @@ console.log(
       booksEstimates: byEstimateId.size,
       booksJobsAdded: (supplemental.jobs || []).length,
       missingLineItems: supplemental.missingLineItems || [],
+      commissionableUnverified: jobs.filter((job) => job.commissionableAmountVerified === false).length,
+      lineItemsMissing: jobs.filter((job) => job.lineItemsAvailable === false).length,
       withQuote: snapshot.jobs.filter((job) => job.quoteStatus).length,
     },
     null,

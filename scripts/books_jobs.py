@@ -4,8 +4,10 @@
 `npm run data:build` runs this. It reads data/source/jobs.json and
 data/source/books-estimates.json and prints supplemental jobs as JSON.
 Film lines and list inputs come from scripts/build_commission_data.py
-(the same catalog match, square-foot rules, and fee handling as the
-sheet export). Commission dollars are not stored; the app recalculates.
+(the same catalog match and square-foot rules as the sheet export).
+Charged amount is the commissionable portion only. The rules live in
+scripts/commissionable_lines.py. Commission dollars are not stored;
+the app recalculates.
 
 This script never calls Zoho and never writes a sheet.
 """
@@ -22,9 +24,9 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from build_commission_data import (  # noqa: E402
     compact_lines,
-    is_fee_line,
     load_catalog,
 )
+from commissionable_lines import summarize_lines  # noqa: E402
 
 FEE_DIVISOR = 1.04
 
@@ -111,35 +113,62 @@ def money(value: float) -> float:
     return sign * round(abs(value) + 1e-10, 2)
 
 
-def prefee_charged(estimate: dict, lines: list[dict]) -> float:
-    """Pre-fee amount charged. Fee lines are excluded.
-
-    Books `total` in this file includes the 4% fee when a fee line is present.
-    With line items, charged is the sum of the other lines. Without line items,
-    strip a flat 4% from `total` so the calculator stays pre-fee.
-    """
-    if lines:
-        charged = 0.0
-        for line in lines:
-            if is_fee_line(line):
-                continue
-            try:
-                charged += float(line.get("item_total") or 0)
-            except (TypeError, ValueError):
-                continue
-        return money(charged)
+def estimate_total(estimate: dict) -> float | None:
     total = estimate.get("total")
     if total is None or total == "":
-        return 0.0
+        return None
     try:
-        return money(float(total) / FEE_DIVISOR)
+        return money(float(total))
     except (TypeError, ValueError):
-        return 0.0
+        return None
+
+
+def commissionable_amount(estimate: dict, lines: list[dict]) -> dict:
+    """What commission is calculated on, plus the lines left out.
+
+    With line items, charged is the sum of commissionable lines only
+    (window film, film removal, C-Bond, labor-only install). Fees, travel,
+    lifts, and other non-film extras are excluded. An unclassified line is
+    excluded and the job is flagged commissionable amount not verified.
+
+    Without line items, keep the previous behavior: strip a flat 4% from
+    `total`, and flag the job line items not available.
+    """
+    if lines:
+        summary = summarize_lines(lines)
+        quote = estimate_total(estimate)
+        return {
+            "charged": summary["commissionable"],
+            "quoteAmount": summary["lineTotal"] if quote is None else quote,
+            "commissionableAmount": summary["commissionable"],
+            "excludedLines": summary["excluded"],
+            "commissionableAmountVerified": not summary["ambiguous"],
+            "lineItemsAvailable": True,
+            "commissionableLines": summary["commissionableLines"],
+        }
+    total = estimate_total(estimate)
+    charged = money(total / FEE_DIVISOR) if total is not None else 0.0
+    return {
+        "charged": charged,
+        "quoteAmount": total,
+        "commissionableAmount": charged,
+        "excludedLines": [],
+        "commissionableAmountVerified": True,
+        "lineItemsAvailable": False,
+        "commissionableLines": [],
+    }
+
+
+def prefee_charged(estimate: dict, lines: list[dict]) -> float:
+    """Commissionable amount charged. See commissionable_amount."""
+    return commissionable_amount(estimate, lines)["charged"]
 
 
 def estimate_to_job(estimate: dict, catalog_by: dict) -> dict:
     lines = line_items_of(estimate)
-    films, _fee, _flags = compact_lines({"line_items": lines}, catalog_by) if lines else ([], 0.0, [])
+    priced = commissionable_amount(estimate, lines)
+    kept = priced["commissionableLines"]
+    films, _fee, _flags = compact_lines({"line_items": kept}, catalog_by) if kept else ([], 0.0, [])
     number = str(estimate.get("estimateNumber") or estimate.get("estimate_number") or "")
     estimate_id = str(estimate.get("estimateId") or estimate.get("estimate_id") or "")
     status = str(estimate.get("status") or "").strip().lower() or None
@@ -165,7 +194,12 @@ def estimate_to_job(estimate: dict, catalog_by: dict) -> dict:
         "acceptedDate": accepted,
         "jobType": "",
         "filmType": "",
-        "charged": prefee_charged(estimate, lines),
+        "charged": priced["charged"],
+        "quoteAmount": priced["quoteAmount"],
+        "commissionableAmount": priced["commissionableAmount"],
+        "excludedLines": priced["excludedLines"],
+        "commissionableAmountVerified": priced["commissionableAmountVerified"],
+        "lineItemsAvailable": priced["lineItemsAvailable"],
         "estimateId": estimate_id or None,
         "estimateNumber": number or None,
         "quoteStatus": status,

@@ -1,3 +1,13 @@
+/** A Books line left out of the commissionable amount. */
+export type ExcludedLine = {
+  name: string;
+  description: string;
+  amount: number;
+  category: string | null;
+  /** Why the line is outside commission: Fee, Travel / mileage, Lift / equipment, Permit / parking, Non-film extra, or Not classified. */
+  reason: string;
+};
+
 export type SnapshotFilmLine = {
   itemName: string;
   description: string;
@@ -30,7 +40,28 @@ export type SnapshotJob = {
   monthSold: string;
   jobType: string;
   filmType: string;
+  /**
+   * Amount commission is calculated on. For a Books job with line items this is
+   * window film, film removal, C-Bond, and labor-only install. Sheet jobs keep
+   * the master-sheet total when Books has no line items.
+   */
   charged: number;
+  /** Full Books quote total, including the 4% fee when that line is present. */
+  quoteAmount?: number | null;
+  /** Same figure as `charged` when this job was priced from Books lines. */
+  commissionableAmount?: number | null;
+  /** Lines left out of `charged`, including the 4% fee when the quote has one. */
+  excludedLines?: ExcludedLine[];
+  /**
+   * False when an unclassified line was left out. The job is flagged
+   * "commissionable amount not verified".
+   */
+  commissionableAmountVerified?: boolean;
+  /**
+   * False when Books had no line items. Charged is the quote total with 4%
+   * removed, and the job is flagged "line items not available".
+   */
+  lineItemsAvailable?: boolean;
   estimateId: string | null;
   estimateNumber: string | null;
   /** Zoho Books estimate status, lowercased. Null when the quote was not found. */
@@ -70,8 +101,9 @@ export interface CommissionDataSource {
 
 /**
  * One Books line, the fields a sync must write.
- * `category` is the item custom field cf_category. "Fee" lines (or a name
- * containing "fee") are the 4% fee and are not part of list or pre-fee charged.
+ * `category` is the item custom field cf_category. Commission uses window film,
+ * film removal, C-Bond, and labor-only lines. Fees, travel, lifts, and other
+ * non-film extras are excluded. See scripts/commissionable_lines.py.
  */
 export type BooksLineItem = {
   name: string;

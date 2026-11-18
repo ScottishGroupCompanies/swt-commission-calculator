@@ -6,7 +6,7 @@ This is a calculator, not a payroll report. It does not list every job or total 
 
 ## Commission rules
 
-Owner-confirmed 2026-11-05. Prices exclude the 4% fee.
+Owner-confirmed 2026-11-05, with commissionable lines confirmed 2026-11-18. Commission is calculated on window film, film removal, C-Bond, and labor-only install. The 4% fee, travel, mileage, lifts, equipment rental, permits, parking, and other non-film extras are not included. A line that cannot be classified is left out and the job is marked **commissionable amount not verified**. A Books quote with no line items keeps the quote total with 4% removed and is marked **line items not available**.
 
 Only these reps earn commission:
 
@@ -18,10 +18,10 @@ Only these reps earn commission:
 | Scott Gafney | 15% |
 | John | 15% |
 
-- If charged is at or above list, commission = rate × charged. List $1,000 at 5%, sold for $1,100, pays **$55**.
+- If the commissionable amount is at or above list, commission = rate × that amount. List $1,000 at 5%, sold for $1,100, pays **$55**.
 - If undersold by less than 10% of list, commission = rate × list − 0.5 × (list − charged). List $1,000 at 5%, sold for $950, pays $50 − $25 = **$25**.
 - If charged is at or under 90% of list, commission is **$0** unless a manager approved the price in writing. With that approval, the undersold formula applies and commission does not go below $0. List $1,000 at 5%, sold for $900, pays **$0**.
-- If list cannot be computed, commission = rate × charged and the job is marked **list not verified**.
+- If list cannot be computed, commission = rate × the commissionable amount and the job is marked **list not verified**.
 - A job missing film or square footage is marked **needs review**.
 
 List price is V-10.9 catalog sell $/SF × billed square feet, plus removal ($1.25/SF), C-Bond ($1.25/SF), and French panes ($3 each). An optional list override replaces that total when accounting already knows the pre-fee list.
@@ -116,9 +116,9 @@ Each line item:
 | `rate` | yes | Books rate |
 | `itemTotal` | yes | Books line total |
 | `unit` | yes | Books unit, e.g. `sf`. Empty string when Books has none. |
-| `category` | yes | Item custom field `cf_category`, or `null`. `Fee` marks the 4% fee line. A name containing “fee” is also treated as the fee. |
+| `category` | yes | Item custom field `cf_category`, or `null`. `Fee` marks the 4% fee line. A name containing “fee” is also treated as the fee. `Material - Film` is window film. |
 
-Pre-fee charged is the sum of line totals that are not the fee. List price is catalog sell $/SF × billed square feet, plus removal and C-Bond when the description says so. The page label and the bot API `fetchedAt` use the later of `fetchedAt` and the job export time.
+The commissionable amount is the sum of line totals that count: window film, film removal, C-Bond, and labor-only install. Fees, travel, lifts, permits, parking, and other non-film extras are excluded. A line that matches none of those rules is excluded and the job is flagged commissionable amount not verified. The rules are in [`scripts/commissionable_lines.py`](scripts/commissionable_lines.py). With no line items, charged is the Books total divided by 1.04 and the job is flagged line items not available. List price is catalog sell $/SF × billed square feet, plus removal and C-Bond when the description says so. That list is compared with the commissionable amount. The page label and the bot API `fetchedAt` use the later of `fetchedAt` and the job export time.
 
 ```bash
 npm run data:build

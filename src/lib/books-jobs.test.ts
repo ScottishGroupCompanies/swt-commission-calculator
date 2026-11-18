@@ -38,6 +38,24 @@ function feeLine(itemTotal: number) {
   };
 }
 
+function extraLine(
+  name: string,
+  description: string,
+  itemTotal: number,
+  category = "Service",
+  unit = "",
+) {
+  return {
+    name,
+    description,
+    quantity: 1,
+    rate: itemTotal,
+    itemTotal,
+    unit,
+    category,
+  };
+}
+
 function estimate(partial: Record<string, unknown>) {
   return {
     estimateId: partial.estimateId,
@@ -62,6 +80,11 @@ function toSnapshotJob(job: {
   location?: string;
   acceptedDate: string | null;
   charged: number;
+  quoteAmount?: number | null;
+  commissionableAmount?: number | null;
+  excludedLines?: Array<{ name: string; description: string; amount: number; category: string | null; reason: string }>;
+  commissionableAmountVerified?: boolean;
+  lineItemsAvailable?: boolean;
   estimateId: string | null;
   estimateNumber: string | null;
   quoteStatus: string | null;
@@ -92,6 +115,11 @@ function toSnapshotJob(job: {
     jobType: "",
     filmType: "",
     charged: job.charged,
+    quoteAmount: job.quoteAmount,
+    commissionableAmount: job.commissionableAmount,
+    excludedLines: job.excludedLines,
+    commissionableAmountVerified: job.commissionableAmountVerified,
+    lineItemsAvailable: job.lineItemsAvailable,
     estimateId: job.estimateId,
     estimateNumber: job.estimateNumber,
     quoteStatus: job.quoteStatus,
@@ -200,6 +228,39 @@ function buildFixtureJobs() {
           date: "2025-12-01",
           lineItems: [atList],
         }),
+        estimate({
+          estimateId: "extras",
+          estimateNumber: "WT-03907-QT01",
+          customerName: "Travel Lift Fee Co",
+          salesperson: "Amy Haley",
+          status: "accepted",
+          lineItems: [
+            atList,
+            extraLine("Trip Charge", "Mileage to the job site", 100),
+            extraLine("Equipment", "Boom lift rental for the upper windows", 200),
+            extraLine("Parking", "Downtown parking permit", 50, "Service"),
+            feeLine(23.7),
+          ],
+          total: 666.22,
+        }),
+        estimate({
+          estimateId: "ambiguous",
+          estimateNumber: "WT-03908-QT01",
+          customerName: "Unclassified Co",
+          salesperson: "Dana Hojnacki",
+          status: "invoiced",
+          lineItems: [atList, extraLine("Widget", "See the office notes", 15, "Service")],
+          total: 307.52,
+        }),
+        estimate({
+          estimateId: "no-lines",
+          estimateNumber: "WT-03909-QT01",
+          customerName: "No Lines Co",
+          salesperson: "Scott Gafney",
+          status: "accepted",
+          lineItems: [],
+          total: 208,
+        }),
       ],
     }),
   );
@@ -265,6 +326,55 @@ describe("Books estimates become jobs", () => {
     expect(unmatchedPrice.charged).toBe(200);
     expect(unmatchedPrice.commission).toBe(14);
     expect(policyForJob(unmatched!, unmatchedPrice).policy).toBe("list not verified");
+  });
+
+  it("excludes travel, a lift, parking, and the fee, and still prices the film", () => {
+    const job = byNumber.get("WT-03907-QT01");
+    expect(job).toBeTruthy();
+    expect(job!.charged).toBe(292.52);
+    expect(job!.commissionableAmount).toBe(292.52);
+    expect(job!.quoteAmount).toBe(666.22);
+    expect(job!.lineItemsAvailable).toBe(true);
+    expect(job!.commissionableAmountVerified).toBe(true);
+    expect(job!.films.map((film) => film.itemName)).toEqual(["Solar Film"]);
+    expect(job!.excludedLines?.map((line) => [line.name, line.amount, line.reason])).toEqual([
+      ["Trip Charge", 100, "Travel / mileage"],
+      ["Equipment", 200, "Lift / equipment"],
+      ["Parking", 50, "Permit / parking"],
+      ["Fee", 23.7, "Fee"],
+    ]);
+    const price = priceSnapshotJob(job!);
+    expect(price.listPrice).toBe(292.52);
+    expect(price.charged).toBe(292.52);
+    expect(price.commission).toBe(14.63);
+    expect(policyForJob(job!, price).policy).toBe("at/over list");
+  });
+
+  it("leaves an unclassified line out and flags the job", () => {
+    const job = byNumber.get("WT-03908-QT01");
+    expect(job).toBeTruthy();
+    expect(job!.charged).toBe(292.52);
+    expect(job!.commissionableAmountVerified).toBe(false);
+    expect(job!.excludedLines).toEqual([
+      expect.objectContaining({ name: "Widget", amount: 15, reason: "Not classified" }),
+    ]);
+    const price = priceSnapshotJob(job!);
+    expect(price.commission).toBe(roundMoney(0.07 * 292.52));
+  });
+
+  it("strips 4% and flags a quote that has no line items", () => {
+    const job = byNumber.get("WT-03909-QT01");
+    expect(job).toBeTruthy();
+    expect(job!.charged).toBe(200);
+    expect(job!.quoteAmount).toBe(208);
+    expect(job!.lineItemsAvailable).toBe(false);
+    expect(job!.commissionableAmountVerified).toBe(true);
+    expect(job!.excludedLines).toEqual([]);
+    expect(job!.films).toEqual([]);
+    expect(built.missingLineItems).toContain("WT-03909-QT01");
+    const price = priceSnapshotJob(job!);
+    expect(price.charged).toBe(200);
+    expect(price.commission).toBe(30);
   });
 
   it("does not duplicate a sheet job or add a 2025 estimate", () => {
@@ -346,5 +456,37 @@ describe("backfilled Books jobs in the snapshot", () => {
     expect(alldredgePrice.listVerified).toBe(false);
     expect(alldredgePrice.commission).toBe(52.97);
     expect(policyForJob(alldredge, alldredgePrice).policy).toBe("list not verified");
+  });
+
+  it("excludes attachment, travel, and glass on real Books quotes", () => {
+    const attachment = byEstimate("WT-02431-QT01");
+    expect(attachment.salesperson).toBe("Amy Haley");
+    expect(attachment.charged).toBe(10395.5);
+    expect(attachment.quoteAmount).toBe(18375.58);
+    expect(attachment.commissionableAmountVerified).toBe(true);
+    expect(attachment.films.map((film) => film.itemName)).toEqual(["Security Film"]);
+    expect(attachment.excludedLines?.map((line) => [line.name, line.amount, line.reason])).toEqual([
+      ["Attachment", 7273.33, "Non-film extra"],
+      ["Fee (No Tax)", 706.75, "Fee"],
+    ]);
+    const attachmentPrice = priceSnapshotJob(attachment);
+    expect(attachmentPrice.listVerified).toBe(true);
+    expect(attachmentPrice.belowFloor).toBe(true);
+    expect(attachmentPrice.commission).toBe(0);
+
+    const trip = byEstimate("WT-02153-QT01");
+    expect(trip.charged).toBe(436.92);
+    expect(trip.excludedLines?.map((line) => [line.name, line.reason])).toEqual([
+      ["Replacement Glass", "Non-film extra"],
+      ["Trip Charge", "Travel / mileage"],
+    ]);
+    expect(trip.commissionableAmountVerified).toBe(true);
+
+    const discount = byEstimate("WT-03643-QT01");
+    expect(discount.charged).toBe(8867.37);
+    expect(discount.commissionableAmountVerified).toBe(false);
+    expect(discount.excludedLines?.some((line) => line.reason === "Not classified" && line.amount === -443.37)).toBe(
+      true,
+    );
   });
 });

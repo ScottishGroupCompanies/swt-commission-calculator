@@ -191,6 +191,18 @@ describe("commission lookup", () => {
     expect(unverified.body.policy).toBe("list not verified");
     expect(unverified.body.commission).toBe(114.6);
 
+    const withExtras = await lookup("/api/v1/commission?estimate=WT-02431-QT01");
+    expect(withExtras.body.quoteAmount).toBe(18375.58);
+    expect(withExtras.body.commissionableAmount).toBe(10395.5);
+    expect(withExtras.body.preFeeCharged).toBe(10395.5);
+    expect(withExtras.body.commission).toBe(0);
+    expect(withExtras.body.commissionableAmountVerified).toBe(true);
+    expect(withExtras.body.lineItemsAvailable).toBe(true);
+    expect(withExtras.body.excludedLines.map((line) => [line.name, line.amount, line.reason])).toEqual([
+      ["Attachment", 7273.33, "Non-film extra"],
+      ["Fee (No Tax)", 706.75, "Fee"],
+    ]);
+
     const outsider = await lookup("/api/v1/commission?estimate=WT-02536-QT01");
     expect(outsider.body.policy).toBe("not an earner");
     expect(outsider.body.rate).toBeNull();

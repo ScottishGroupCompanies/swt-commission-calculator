@@ -6,11 +6,15 @@ import type { SnapshotJob } from "@/lib/types";
  * Commission for a snapshot job before any in-browser edits.
  * The calculator and the bot API both call this so the numbers match.
  * Manager approval stays off, French panes stay 0, and there is no list override.
+ *
+ * `job.charged` is the commissionable amount (film, removal, C-Bond, and
+ * labor). List price is catalog sell $/SF × square feet plus removal and
+ * C-Bond add-ons, so the comparison is commissionable charged against that list.
  */
 export function priceSnapshotJob(job: SnapshotJob): JobPriceResult {
   return priceJob({
     rate: commissionRateFor(job.salesperson) ?? 0,
-    charged: job.charged,
+    charged: job.commissionableAmount ?? job.charged,
     sold: isSoldQuoteStatus(job.quoteStatus),
     lines: job.films.map((film) => ({
       sellPerSf: film.sellPerSf,

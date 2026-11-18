@@ -4,7 +4,7 @@ Private commission lookup for server-side callers. Sarah's bot sends `Authorizat
 
 The numbers are the same ones the calculator shows before anyone edits a job in the browser: manager approval off, no list override, French panes at 0. Commission is calculated by `priceSnapshotJob` in [`src/lib/snapshot-price.ts`](../src/lib/snapshot-price.ts), which calls the same `priceJob` rules as the page.
 
-The data is the snapshot baked into the deploy. A quote that the website cannot find returns 404. Amounts are pre-fee (the 4% fee is not included).
+The data is the snapshot baked into the deploy. A quote that the website cannot find returns 404. Commission is calculated on the commissionable amount: window film, film removal, C-Bond, and labor-only install. The 4% fee, travel, mileage, lifts, equipment rental, permits, parking, and other non-film extras are excluded. `quoteAmount` is the full Books quote, including the fee when that line is present.
 
 Base URL: `https://swt-commission-calculator.vercel.app`
 
@@ -75,6 +75,11 @@ One match returns the record. Example shape (WT-03533 is below the 10% floor, so
   "commissionable": false,
   "reason": "Below the 10% floor. Commission is $0 unless a manager approved this price in writing.",
   "preFeeCharged": 3282,
+  "quoteAmount": null,
+  "commissionableAmount": 3282,
+  "excludedLines": [],
+  "commissionableAmountVerified": true,
+  "lineItemsAvailable": true,
   "listAmount": 4555.24,
   "rate": 0.07,
   "undersoldPercent": 27.95,
@@ -85,7 +90,11 @@ One match returns the record. Example shape (WT-03533 is below the 10% floor, so
 }
 ```
 
-`fetchedAt` is the later of when the Books estimates were read and when the job list was built. It is the same instant as the calculator label "Zoho Books data as of". `dataAsOf` is the master-sheet timestamp. `rate` is a fraction (`0.05` is 5%) and is null when the salesperson is not an earner. `undersoldPercent` is `(list − charged) / list` in percent: positive is undersold, negative is over list, null when list is unknown.
+`fetchedAt` is the later of when the Books estimates were read and when the job list was built. It is the same instant as the calculator label "Zoho Books data as of". `dataAsOf` is the master-sheet timestamp. `rate` is a fraction (`0.05` is 5%) and is null when the salesperson is not an earner. `undersoldPercent` is `(list − commissionable amount) / list` in percent: positive is undersold, negative is over list, null when list is unknown.
+
+`preFeeCharged` and `commissionableAmount` are the same number: the amount the rate is applied to. It includes window film, film removal, C-Bond, and labor-only install. It does not include the 4% fee, travel, lifts, or other non-film extras. `quoteAmount` is the full Books quote total (null on a sheet job that has no Books total stored). `excludedLines` lists each left-out line with `name`, `description`, `amount`, `category`, and `reason`. `reason` is one of `Fee`, `Travel / mileage`, `Lift / equipment`, `Permit / parking`, `Non-film extra`, or `Not classified`.
+
+`commissionableAmountVerified` is false when a line could not be classified. That line is in `excludedLines` with reason `Not classified`, and a person should check the job before paying it. `lineItemsAvailable` is false when Books had no line items. Commission then uses the quote total with 4% removed, which is the previous behavior, and the job is flagged line items not available. Both flags can be read without changing `policy`.
 
 `policy` is one of:
 

@@ -265,6 +265,33 @@ input:focus, select:focus { border-color: var(--navy); box-shadow: 0 0 0 3px rgb
 }
 .ledger { grid-template-columns: 1fr 1fr; }
 
+.excluded { margin-top: 8px; }
+.excluded h3 {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.excluded ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.excluded li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+}
+.excluded-name { font-weight: 700; }
+.excluded-amount { font-variant-numeric: tabular-nums; font-weight: 650; text-align: right; }
+.excluded-reason { color: var(--muted); font-size: 0.82rem; grid-column: 1 / -1; }
+.excluded-desc {
+  color: var(--muted);
+  font-size: 0.82rem;
+  grid-column: 1 / -1;
+  white-space: pre-wrap;
+}
+
 .rules { margin-top: 22px; }
 .rules summary { cursor: pointer; font-weight: 700; color: var(--pine); }
 .rules p { max-width: 75ch; }

@@ -212,8 +212,8 @@ export function Calculator({
         </div>
         <h1>Commission calculator</h1>
         <p className="lede">
-          Pick a sales rep, then one job. Film, square footage, charged amount, and add-ons
-          recalculate commission as you edit.
+          Pick a sales rep, then one job. Film, square footage, the commissionable amount, and
+          add-ons recalculate commission as you edit.
         </p>
         <p className="asof">{booksDataLabel(snapshot)}</p>
       </header>
@@ -264,11 +264,13 @@ export function Calculator({
                           </span>
                           <span className="match-client">{job.client}</span>
                           <span className="match-meta">
-                            {job.dateSold || "No date"} · {formatMoney(job.charged)} charged
+                            {job.dateSold || "No date"} · {formatMoney(job.charged)} commissionable
                             {preview.notSold ? " · Not sold" : ""}
                             {preview.needsReview ? " · Needs review" : ""}
                             {!preview.notSold && !preview.listVerified ? " · List not verified" : ""}
                             {preview.belowFloor ? " · Below 10% floor" : ""}
+                            {job.commissionableAmountVerified === false ? " · Commissionable amount not verified" : ""}
+                            {job.lineItemsAvailable === false ? " · Line items not available" : ""}
                           </span>
                         </button>
                       </li>
@@ -317,6 +319,12 @@ export function Calculator({
                   <span className="badge ok">At list</span>
                 ) : null}
                 {dirty ? <span className="badge edit">Edited</span> : null}
+                {selected.commissionableAmountVerified === false ? (
+                  <span className="badge unverified">Commissionable amount not verified</span>
+                ) : null}
+                {selected.lineItemsAvailable === false ? (
+                  <span className="badge review">Line items not available</span>
+                ) : null}
               </div>
             </div>
 
@@ -357,6 +365,17 @@ export function Calculator({
                 {live.needsReview && live.usedOverride
                   ? " The list override is used for commission, and the job stays marked needs review until film and square footage are filled in."
                   : ""}
+              </div>
+            ) : null}
+            {selected.commissionableAmountVerified === false ? (
+              <div className="callout" role="status">
+                Commissionable amount not verified. An unclassified line was left out of the
+                commissionable amount. Check the excluded lines before paying this job.
+              </div>
+            ) : null}
+            {selected.lineItemsAvailable === false ? (
+              <div className="callout" role="status">
+                Line items not available. Commission uses the quote total with the 4% fee removed.
               </div>
             ) : null}
 
@@ -482,7 +501,7 @@ export function Calculator({
 
             <div className="money-inputs">
               <div className="field">
-                <label htmlFor="charged">Charged (pre-fee)</label>
+                <label htmlFor="charged">Commissionable amount</label>
                 <input
                   id="charged"
                   inputMode="decimal"
@@ -562,12 +581,18 @@ export function Calculator({
             <p className="commission">{formatMoney(live.commission)}</p>
             <p className="explain">{explain(live, rateLabel)}</p>
             <dl className="ledger">
+              {selected.quoteAmount != null ? (
+                <div>
+                  <dt>Full quote</dt>
+                  <dd>{formatMoney(selected.quoteAmount)}</dd>
+                </div>
+              ) : null}
               <div>
                 <dt>{live.usedOverride ? "List override" : "List price"}</dt>
                 <dd>{formatMoney(live.listPrice)}</dd>
               </div>
               <div>
-                <dt>Charged</dt>
+                <dt>Commissionable</dt>
                 <dd>{formatMoney(live.charged)}</dd>
               </div>
               <div>
@@ -581,6 +606,21 @@ export function Calculator({
                 <dd>{rateLabel}</dd>
               </div>
             </dl>
+            {selected.excludedLines && selected.excludedLines.length > 0 ? (
+              <div className="excluded">
+                <h3>Excluded from commission</h3>
+                <ul>
+                  {selected.excludedLines.map((line, index) => (
+                    <li key={`${line.name}-${index}`}>
+                      <span className="excluded-name">{line.name || "Untitled line"}</span>
+                      <span className="excluded-amount">{formatMoney(line.amount)}</span>
+                      <span className="excluded-reason">{line.reason}</span>
+                      {line.description ? <span className="excluded-desc">{line.description}</span> : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </aside>
         </div>
       )}
@@ -589,15 +629,21 @@ export function Calculator({
         <summary>Commission rules</summary>
         <p>
           Only Dana (7%), Amy (5%), Blake (15%), Scott (15%), and John (15%) earn commission.
-          List and charged amounts exclude the 4% fee. If charged is at or above list, commission
-          is the rate times charged. Example: list $1,000 at 5%, sold for $1,100, pays $55. If the
-          job is undersold by less than 10% of list, commission is the rate times list minus half
-          the shortfall. Example: list $1,000 at 5%, sold for $950, pays $50 − $25 = $25. If
-          charged is 10% or more below list, commission is $0 unless a manager approved the price
-          in writing. With that approval, the undersold formula applies and commission does not go
-          below $0. Example: list $1,000 at 5%, sold for $900, pays $0. If list cannot be
-          computed, commission is the rate times charged and the job is marked list not verified.
-          A job missing film or square footage is marked needs review.
+          Commission is calculated on the commissionable amount: window film, film removal, C-Bond,
+          and labor-only install. Travel, mileage, lifts, equipment rental, the 4% fee, permits,
+          parking, and other non-film extras are excluded. A line that cannot be classified is
+          excluded and the job is marked commissionable amount not verified. A quote with no line
+          items keeps the quote total with the 4% fee removed and is marked line items not
+          available. If the commissionable amount is at or above list, commission is the rate times
+          that amount. Example: list $1,000 at 5%, sold for $1,100, pays $55. If the job is
+          undersold by less than 10% of list, commission is the rate times list minus half the
+          shortfall. Example: list $1,000 at 5%, sold for $950, pays $50 − $25 = $25. If the
+          commissionable amount is 10% or more below list, commission is $0 unless a manager
+          approved the price in writing. With that approval, the undersold formula applies and
+          commission does not go below $0. Example: list $1,000 at 5%, sold for $900, pays $0. If
+          list cannot be computed, commission is the rate times the commissionable amount and the
+          job is marked list not verified. A job missing film or square footage is marked needs
+          review.
         </p>
       </details>
     </div>

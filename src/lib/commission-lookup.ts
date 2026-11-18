@@ -2,7 +2,7 @@ import { findRep, roundMoney, type JobPriceResult } from "@/lib/commission";
 import { booksFreshnessIso } from "@/lib/freshness";
 import { normalizeQuoteNumber } from "@/lib/quotes";
 import { priceSnapshotJob } from "@/lib/snapshot-price";
-import type { CommissionSnapshot, SnapshotJob } from "@/lib/types";
+import type { CommissionSnapshot, ExcludedLine, SnapshotJob } from "@/lib/types";
 
 /** Policy branch names the bot API returns. */
 export type PolicyBranch =
@@ -29,13 +29,27 @@ export type CommissionRecord = {
   acceptedDate: string | null;
   commissionable: boolean;
   reason: string | null;
-  /** Pre-fee amount charged. The 4% fee is not included. */
+  /**
+   * Amount the commission math uses. Window film, film removal, C-Bond, and
+   * labor-only install. The 4% fee, travel, lifts, and other non-film extras
+   * are not included. Same number as `commissionableAmount`.
+   */
   preFeeCharged: number | null;
+  /** Full Books quote total, including the 4% fee when that line is present. Null when this job has no Books total. */
+  quoteAmount: number | null;
+  /** Commissionable amount. Same number as `preFeeCharged`. */
+  commissionableAmount: number | null;
+  /** Lines left out of the commissionable amount, with their Books amounts. */
+  excludedLines: ExcludedLine[];
+  /** False when an unclassified line was left out. */
+  commissionableAmountVerified: boolean;
+  /** False when Books had no line items and the 4% fee was stripped from the quote total. */
+  lineItemsAvailable: boolean;
   listAmount: number | null;
   /** Rep rate as a fraction (0.05 = 5%). Null when the salesperson is not an earner. */
   rate: number | null;
   /**
-   * (list − charged) / list, in percent, rounded to cents.
+   * (list − commissionable amount) / list, in percent, rounded to cents.
    * Positive means undersold. Negative means over list. Null when list is unknown.
    */
   undersoldPercent: number | null;
@@ -156,6 +170,11 @@ export function toCommissionRecord(
     commissionable: branch.commissionable,
     reason: branch.reason,
     preFeeCharged: price.charged,
+    quoteAmount: job.quoteAmount ?? null,
+    commissionableAmount: price.charged,
+    excludedLines: job.excludedLines ?? [],
+    commissionableAmountVerified: job.commissionableAmountVerified !== false,
+    lineItemsAvailable: job.lineItemsAvailable !== false,
     listAmount: price.listPrice,
     rate: earner?.rate ?? null,
     undersoldPercent: undersoldPercent(price.listPrice, price.charged),
