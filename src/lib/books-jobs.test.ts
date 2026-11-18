@@ -276,10 +276,12 @@ describe("Books estimates become jobs", () => {
 
 describe("Books freshness label", () => {
   it("uses booksAsOf when that read is newer than the job export", () => {
-    expect(formatBooksAsOf("2026-11-17T22:16:18Z")).toBe("Nov 17, 2026 3:16 PM MT");
+    expect(formatBooksAsOf("2026-11-18T16:12:00Z")).toBe("Nov 18, 2026 9:12 AM MT");
+    const booksAsOf = snapshot.booksAsOf ?? "";
+    const label = formatBooksAsOf(booksAsOf);
     expect(booksFreshnessIso(snapshot)).toBe(snapshot.booksAsOf);
     expect(booksDataLabel(snapshot)).toBe(
-      "Zoho Books data as of Nov 17, 2026 3:16 PM MT. Prices exclude the 4% fee. Edits stay in this browser and are not written to Zoho.",
+      `Zoho Books data as of ${label}. Prices exclude the 4% fee. Edits stay in this browser and are not written to Zoho.`,
     );
     const record = toCommissionRecord(snapshot.jobs[0], snapshot);
     expect(record.fetchedAt).toBe(snapshot.booksAsOf);
