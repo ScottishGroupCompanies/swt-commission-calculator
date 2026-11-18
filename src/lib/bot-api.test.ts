@@ -15,6 +15,9 @@ import {
 } from "@/lib/commission-lookup";
 import { allowRequest, rateLimits, resetRateLimits } from "@/lib/rate-limit";
 import { priceSnapshotJob } from "@/lib/snapshot-price";
+import { resetCreditCardFlagsForTests, writeCreditCardFlag } from "@/lib/credit-card-flags";
+import { creditCardFlagKey } from "@/lib/credit-card-flag";
+import { creditCardProcessingFee } from "@/lib/commission";
 import type { CommissionSnapshot, SnapshotJob } from "@/lib/types";
 import { memoryUsage, resetUsageForTests, safeQueryString } from "@/lib/usage-log";
 import { proxy } from "@/proxy";
@@ -71,6 +74,7 @@ beforeEach(() => {
   });
   resetRateLimits();
   resetUsageForTests();
+  resetCreditCardFlagsForTests();
   rateLimits.validPerMinute = 60;
   rateLimits.invalidPerMinute = 30;
 });
@@ -80,6 +84,7 @@ afterEach(() => {
   process.env.AUTH_SECRET = ORIGINAL_SECRET;
   resetRateLimits();
   resetUsageForTests();
+  resetCreditCardFlagsForTests();
   vi.restoreAllMocks();
 });
 
@@ -330,6 +335,53 @@ describe("commission lookup", () => {
     expect(many.results.map((row) => row.commission)).toEqual(
       findSnapshotJobs(snapshot.jobs, { estimate: "WT-02852" }).map((entry) => priceSnapshotJob(entry).commission),
     );
+  });
+
+  it("returns the credit card fee and adjusted commission without changing an unflagged job", async () => {
+    const plain = await lookup("/api/v1/commission?estimate=WT-03643-QT01");
+    expect(plain.status).toBe(200);
+    expect(plain.body.paidByCreditCard).toBe(false);
+    expect(plain.body.creditCardFee).toBe(0);
+    expect(plain.body.adjustedCommission).toBe(plain.body.commission);
+    expect(plain.body.commissionBeforeCreditCard).toBe(plain.body.commission);
+    expect(plain.body.commissionableAmount).toBe(11495.05);
+    expect(plain.body.commission).toBe(1724.26);
+
+    const entry = snapshot.jobs.find((item) => item.estimateNumber === "WT-03643-QT01");
+    expect(entry).toBeTruthy();
+    await writeCreditCardFlag({
+      key: creditCardFlagKey(entry!),
+      paidByCreditCard: true,
+      updatedBy: "admin",
+      updatedAt: "2026-11-18T22:05:00.000Z",
+      estimateNumber: entry!.estimateNumber,
+      jobNumber: entry!.jobNumber,
+      quoteNumber: entry!.zoho,
+      jobId: entry!.id,
+    });
+
+    const flagged = await lookup("/api/v1/commission?estimate=WT-03643-QT01");
+    const fee = creditCardProcessingFee(11495.05);
+    expect(flagged.body.paidByCreditCard).toBe(true);
+    expect(flagged.body.creditCardFee).toBe(fee);
+    expect(flagged.body.creditCardFee).toBe(333.36);
+    expect(flagged.body.commissionBeforeCreditCard).toBe(1724.26);
+    expect(flagged.body.adjustedCommission).toBe(1674.25);
+    expect(flagged.body.commission).toBe(flagged.body.adjustedCommission);
+    expect(flagged.body.policy).toBe("list not verified");
+    expect(flagged.body.discountLines.some((line) => line.amount === -605)).toBe(true);
+
+    const posted = await POST(
+      new Request("http://localhost/api/v1/commission", {
+        method: "POST",
+        headers: authHeaders(SARAH_KEY, { "content-type": "application/json" }),
+        body: JSON.stringify({ estimate: "WT-03643-QT01", paidByCreditCard: false }),
+      }),
+    );
+    expect(posted.status).toBe(200);
+    const postedBody = (await posted.json()) as CommissionRecord;
+    expect(postedBody.paidByCreditCard).toBe(true);
+    expect(postedBody.adjustedCommission).toBe(1674.25);
   });
 });
 

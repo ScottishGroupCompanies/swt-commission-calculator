@@ -12,7 +12,10 @@ import type { SnapshotJob } from "@/lib/types";
  * removal and C-Bond add-ons, so the comparison is commissionable charged
  * against that list.
  */
-export function priceSnapshotJob(job: SnapshotJob): JobPriceResult {
+export function priceSnapshotJob(
+  job: SnapshotJob,
+  options?: { paidByCreditCard?: boolean },
+): JobPriceResult {
   return priceJob({
     rate: commissionRateFor(job.salesperson) ?? 0,
     charged: job.commissionableAmount ?? job.charged,
@@ -23,5 +26,6 @@ export function priceSnapshotJob(job: SnapshotJob): JobPriceResult {
       removal: film.removal,
       cBond: film.cBond,
     })),
+    paidByCreditCard: options?.paidByCreditCard,
   });
 }

@@ -5,14 +5,20 @@ import { formatRate } from "./format";
 import { isSoldQuoteStatus, normalizeQuoteNumber, quoteMatches } from "./quotes";
 import {
   ADDON_RATES,
+  CREDIT_CARD_FEE_RATE,
+  CREDIT_CARD_FEE_THRESHOLD,
   EXCLUDED_FEE_RATE,
   REPS,
   SELL_PER_SF_BY_GROUP,
+  clampCommission,
   commissionFromListAndCharged,
   commissionRateFor,
+  creditCardFeeApplies,
+  creditCardProcessingFee,
   priceJob,
   sellPerSfForGroup,
 } from "./commission";
+import { priceSnapshotJob } from "./snapshot-price";
 import type { CommissionSnapshot, SnapshotJob } from "./types";
 
 describe("formatRate", () => {
@@ -263,6 +269,97 @@ describe("priceJob", () => {
   });
 });
 
+describe("paid by credit card", () => {
+  it("charges 2.9% only when the commissionable amount is over $10,000", () => {
+    expect(CREDIT_CARD_FEE_RATE).toBe(0.029);
+    expect(CREDIT_CARD_FEE_THRESHOLD).toBe(10_000);
+    expect(creditCardProcessingFee(20_000)).toBe(580);
+    expect(creditCardFeeApplies(true, 10_000)).toBe(false);
+    expect(creditCardFeeApplies(true, 10_000.01)).toBe(true);
+    expect(creditCardFeeApplies(false, 20_000)).toBe(false);
+
+    const atCeiling = commissionFromListAndCharged(0.15, 10_000, 10_000, false, true);
+    expect(atCeiling.creditCardFee).toBe(0);
+    expect(atCeiling.commission).toBe(1500);
+    expect(atCeiling.commissionBeforeCreditCard).toBe(1500);
+    expect(atCeiling.paidByCreditCard).toBe(true);
+    expect(atCeiling.status).toBe("ok");
+
+    const under = commissionFromListAndCharged(0.15, 9999.99, 9999.99, false, true);
+    const underPlain = commissionFromListAndCharged(0.15, 9999.99, 9999.99);
+    expect(under.creditCardFee).toBe(0);
+    expect(under.commission).toBe(underPlain.commission);
+    expect(under.commissionBase).toBe(underPlain.commissionBase);
+  });
+
+  it("deducts $580 from a $20,000 at-list job before Blake's 15% ($2,913)", () => {
+    const plain = commissionFromListAndCharged(0.15, 20_000, 20_000);
+    expect(plain.commission).toBe(3000);
+    expect(plain.creditCardFee).toBe(0);
+    expect(plain.paidByCreditCard).toBe(false);
+
+    const card = commissionFromListAndCharged(0.15, 20_000, 20_000, false, true);
+    expect(card.status).toBe("ok");
+    expect(card.belowFloor).toBe(false);
+    expect(card.creditCardFee).toBe(580);
+    expect(card.commissionBase).toBe(19_420);
+    expect(card.commissionBeforeCreditCard).toBe(3000);
+    expect(card.commission).toBe(2913);
+  });
+
+  it("keeps an oversold tier when the fee would drop the base under list", () => {
+    // $20,100 vs list $20,000 is over list. Fee $582.90 leaves a base of $19,517.10,
+    // which would be undersold if the tier were chosen after the fee.
+    const card = commissionFromListAndCharged(0.15, 20_100, 20_000, false, true);
+    expect(creditCardProcessingFee(20_100)).toBe(582.9);
+    expect(card.status).toBe("oversold");
+    expect(card.belowFloor).toBe(false);
+    expect(card.creditCardFee).toBe(582.9);
+    expect(card.commissionBase).toBe(19517.1);
+    expect(card.commission).toBe(2927.57);
+    expect(card.commissionBeforeCreditCard).toBe(3015);
+  });
+
+  it("subtracts rate × fee from the undersold base and does not cross the 10% floor", () => {
+    // List $22,000, commissionable $20,000 after a $2,000 discount.
+    // 20000 / 22000 is about 9.09% under list, so the tier is undersold <10%.
+    // Fee $580 would leave $19,420, which is under 90% of $22,000 ($19,800).
+    // The tier stays undersold and the fee comes off the formula's base.
+    const plain = commissionFromListAndCharged(0.15, 20_000, 22_000);
+    expect(plain.status).toBe("undersold");
+    expect(plain.belowFloor).toBe(false);
+    // 15% of $22,000 − half of the $2,000 shortfall = $3,300 − $1,000.
+    expect(plain.commission).toBe(2300);
+
+    const card = commissionFromListAndCharged(0.15, 20_000, 22_000, false, true);
+    expect(card.status).toBe("undersold");
+    expect(card.belowFloor).toBe(false);
+    expect(card.creditCardFee).toBe(580);
+    expect(card.commissionBeforeCreditCard).toBe(2300);
+    // U − rate × fee = 2300 − 0.15 × 580 = 2300 − 87.
+    expect(card.commission).toBe(clampCommission(2300 - 0.15 * 580));
+    expect(card.commission).toBe(2213);
+    expect(card.commission).not.toBe(0);
+  });
+
+  it("leaves a below-floor job at $0 and still reports the fee", () => {
+    const blocked = commissionFromListAndCharged(0.15, 15_000, 20_000, false, true);
+    expect(blocked.status).toBe("below_floor");
+    expect(blocked.commission).toBe(0);
+    expect(blocked.creditCardFee).toBe(435);
+    expect(blocked.commissionBeforeCreditCard).toBe(0);
+
+    const approved = commissionFromListAndCharged(0.15, 15_000, 20_000, true, true);
+    expect(approved.status).toBe("below_floor");
+    expect(approved.managerApproved).toBe(true);
+    // 15% of $20,000 − half of the $5,000 shortfall = $3,000 − $2,500 = $500.
+    // Then subtract 15% of the $435 fee.
+    expect(approved.commissionBeforeCreditCard).toBe(500);
+    expect(approved.creditCardFee).toBe(435);
+    expect(approved.commission).toBe(434.75);
+  });
+});
+
 describe("bundled snapshot jobs", () => {
   const snapshot = JSON.parse(
     readFileSync(path.join(process.cwd(), "src/data/snapshot.json"), "utf8"),
@@ -356,5 +453,25 @@ describe("bundled snapshot jobs", () => {
     expect(result.needsReview).toBe(true);
     expect(result.listVerified).toBe(false);
     expect(result.commission).toBe(114.6);
+  });
+
+  it("takes the credit card fee from the discounted commissionable amount", () => {
+    const discount = job("WT-03643");
+    expect(discount.estimateNumber).toBe("WT-03643-QT01");
+    expect(discount.charged).toBe(11495.05);
+    expect(discount.discountLines?.some((line) => line.amount === -605)).toBe(true);
+    const plain = priceSnapshotJob(discount);
+    expect(plain.listVerified).toBe(false);
+    expect(plain.commission).toBe(1724.26);
+    expect(plain.creditCardFee).toBe(0);
+
+    const card = priceSnapshotJob(discount, { paidByCreditCard: true });
+    // Fee is 2.9% of $11,495.05 (film minus the $605 discount), not of the pre-discount film.
+    expect(card.status).toBe("list_not_verified");
+    expect(card.creditCardFee).toBe(333.36);
+    expect(card.creditCardFee).not.toBe(creditCardProcessingFee(11495.05 + 605));
+    expect(card.commissionBase).toBe(11161.69);
+    expect(card.commissionBeforeCreditCard).toBe(1724.26);
+    expect(card.commission).toBe(1674.25);
   });
 });

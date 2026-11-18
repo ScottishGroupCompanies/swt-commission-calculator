@@ -85,6 +85,10 @@ One match returns the record. Example shape (WT-03533 is below the 10% floor, so
   "rate": 0.07,
   "undersoldPercent": 27.95,
   "commission": 0,
+  "paidByCreditCard": false,
+  "creditCardFee": 0,
+  "adjustedCommission": 0,
+  "commissionBeforeCreditCard": 0,
   "policy": "undersold >=10% needs manager approval",
   "fetchedAt": "2026-11-17T17:50:00Z",
   "dataAsOf": "2026-11-05 12:34 PM MST"
@@ -112,6 +116,18 @@ One match returns the record. Example shape (WT-03533 is below the 10% floor, so
 | `needs review` | no — charged amount is missing |
 
 `status` is the Books estimate status: `accepted`, `invoiced`, `draft`, `sent`, `declined`, or null when the quote was not in Books.
+
+`paidByCreditCard` is true when an admin has marked that job paid by credit card. `creditCardFee` is 2.9% of `commissionableAmount` when that flag is on and the amount is over $10,000, otherwise 0. The list tier is chosen from the original commissionable amount before the fee is subtracted, so the fee cannot move a job into the undersold tiers. At $10,000 or under, the flag is still returned and `creditCardFee` is 0.
+
+`commission` and `adjustedCommission` are the payable commission, the same number the calculator shows. When `creditCardFee` is 0 they match the formula from before this flag existed. When the fee applies:
+
+- At or over list, and when list is not verified: commission = rate × (commissionable amount − credit card fee). Example: $20,000 commissionable, Blake at 15% → fee $580, base $19,420, `adjustedCommission` $2,913.
+- Undersold by less than 10%, and a manager-approved sale below the 10% floor: let U be the undersold commission (rate × list − half the shortfall, floored at $0). The fee is subtracted from U's commission base, which is U / rate, and the rate is applied again: `adjustedCommission` = U − rate × fee, floored at $0. The shortfall inside U still uses the original list and commissionable amount.
+- Below the 10% floor with no manager approval, or not sold: payable commission stays $0. `creditCardFee` is still the 2.9% amount when the threshold is met.
+
+`commissionBeforeCreditCard` is U, or the tier commission before that deduction. It equals `commission` whenever `creditCardFee` is 0. Callers that only read `commission` keep working: unflagged jobs are unchanged, and a flagged job's `commission` is the payable adjusted amount.
+
+The flag is not a request field. GET and POST look up the saved value. Saving it is the admin checkbox on the calculator, stored privately and not in this repository. See [Credit card flags](#credit-card-flags).
 
 More than one snapshot job can share a quote number. The API then returns `200` with `{ "count", "results", "fetchedAt", "dataAsOf" }`. Pass `job` or `jobId` to pick one.
 
@@ -158,3 +174,11 @@ Admin session only:
 - JSON: `GET /api/admin/usage`
 
 The log is not in the repository.
+
+## Credit card flags
+
+An admin marks a job paid by credit card on the calculator. Kelly and Sarah can see the mark and the deduction. They cannot change it.
+
+Each mark is one private Blob object under `swt-commission-flags/` in the same Vercel Blob store as `usage/`. The object name is the job number when the job has one that is different from its estimate (`F240464.json`), otherwise the estimate number (`WT-03533-QT01.json`). The JSON records `paidByCreditCard`, `updatedBy`, `updatedAt`, and the estimate, job number, quote, and snapshot id that were current when it was saved. The snapshot rebuild does not write this prefix, so a 30-minute data sync leaves the marks in place.
+
+`GET /api/commission-flags` (any signed-in user) returns `{ "flags": { "<key>": { ... } } }`. `POST /api/commission-flags` with `{ "jobId", "paidByCreditCard" }` is admin only. The bot API does not accept the flag as an input. It reads the stored mark and returns `paidByCreditCard`, `creditCardFee`, and `adjustedCommission`.
