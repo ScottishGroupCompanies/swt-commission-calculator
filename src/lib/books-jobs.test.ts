@@ -276,15 +276,33 @@ describe("Books estimates become jobs", () => {
 
 describe("Books freshness label", () => {
   it("uses booksAsOf when that read is newer than the job export", () => {
-    expect(formatBooksAsOf("2026-11-18T16:12:00Z")).toBe("Nov 18, 2026 9:12 AM MT");
-    const booksAsOf = snapshot.booksAsOf ?? "";
+    const booksAsOf = "2026-11-18T16:12:00Z";
+    const newerThanJobs = {
+      booksAsOf,
+      asOfIso: "2026-11-05T12:34:41.581812-07:00",
+      asOf: "2026-11-05 12:34 PM MST",
+    };
+    const job = toSnapshotJob({
+      id: "fixture|1",
+      client: "Fixture Co",
+      zoho: "WT-00001",
+      jobNumber: "F1",
+      designer: "Amy Haley",
+      salesperson: "Amy Haley",
+      acceptedDate: "2026-11-18",
+      charged: 100,
+      estimateId: "fixture",
+      estimateNumber: "WT-00001-QT01",
+      quoteStatus: "accepted",
+      films: [],
+    });
     const label = formatBooksAsOf(booksAsOf);
-    expect(booksFreshnessIso(snapshot)).toBe(snapshot.booksAsOf);
-    expect(booksDataLabel(snapshot)).toBe(
+    expect(label).toBe("Nov 18, 2026 9:12 AM MT");
+    expect(booksFreshnessIso(newerThanJobs)).toBe(booksAsOf);
+    expect(booksDataLabel(newerThanJobs)).toBe(
       `Zoho Books data as of ${label}. Prices exclude the 4% fee. Edits stay in this browser and are not written to Zoho.`,
     );
-    const record = toCommissionRecord(snapshot.jobs[0], snapshot);
-    expect(record.fetchedAt).toBe(snapshot.booksAsOf);
+    expect(toCommissionRecord(job, newerThanJobs).fetchedAt).toBe(booksAsOf);
   });
 
   it("uses the job build time when that is later than the Books fetch", () => {
