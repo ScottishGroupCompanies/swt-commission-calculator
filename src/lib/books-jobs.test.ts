@@ -483,9 +483,9 @@ describe("backfilled Books jobs in the snapshot", () => {
     expect(trip.commissionableAmountVerified).toBe(true);
 
     const discount = byEstimate("WT-03643-QT01");
-    expect(discount.charged).toBe(8867.37);
+    expect(discount.charged).toBe(12100.05);
     expect(discount.commissionableAmountVerified).toBe(false);
-    expect(discount.excludedLines?.some((line) => line.reason === "Not classified" && line.amount === -443.37)).toBe(
+    expect(discount.excludedLines?.some((line) => line.reason === "Not classified" && line.amount === -605)).toBe(
       true,
     );
   });
