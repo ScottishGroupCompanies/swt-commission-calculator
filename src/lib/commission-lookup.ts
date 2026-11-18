@@ -58,7 +58,26 @@ export type CommissionRecord = {
    * Positive means undersold. Negative means over list. Null when list is unknown.
    */
   undersoldPercent: number | null;
+  /**
+   * Payable commission. This already includes the credit-card deduction when
+   * `creditCardFee` is greater than 0, and it matches the calculator.
+   * When the fee is $0 it is the same number the API returned before that flag existed.
+   */
   commission: number | null;
+  /** True when accounting has marked this job paid by credit card. */
+  paidByCreditCard: boolean;
+  /**
+   * 2.9% of the commissionable amount when the job is paid by credit card and
+   * that amount is over $10,000. Otherwise 0. The list tier is chosen before
+   * this fee is subtracted, so the fee cannot move the job into a lower tier.
+   */
+  creditCardFee: number;
+  /**
+   * Payable commission after the credit-card fee. Same number as `commission`.
+   */
+  adjustedCommission: number | null;
+  /** Tier commission before the credit-card fee. Equals `commission` when the fee is $0. */
+  commissionBeforeCreditCard: number | null;
   policy: PolicyBranch;
   /**
    * Later of the Books fetch time and the job-list build time.
@@ -157,8 +176,9 @@ export function policyForJob(
 export function toCommissionRecord(
   job: SnapshotJob,
   snapshot: Pick<CommissionSnapshot, "booksAsOf" | "asOfIso" | "asOf">,
+  options?: { paidByCreditCard?: boolean },
 ): CommissionRecord {
-  const price = priceSnapshotJob(job);
+  const price = priceSnapshotJob(job, options);
   const branch = policyForJob(job, price);
   const earner = findRep(job.salesperson);
   return {
@@ -185,6 +205,10 @@ export function toCommissionRecord(
     rate: earner?.rate ?? null,
     undersoldPercent: undersoldPercent(price.listPrice, price.charged),
     commission: price.commission,
+    paidByCreditCard: price.paidByCreditCard,
+    creditCardFee: price.creditCardFee,
+    adjustedCommission: price.commission,
+    commissionBeforeCreditCard: price.commissionBeforeCreditCard,
     policy: branch.policy,
     fetchedAt: booksFreshnessIso(snapshot),
     dataAsOf: snapshot.asOf,

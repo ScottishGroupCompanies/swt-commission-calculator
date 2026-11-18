@@ -235,6 +235,8 @@ input:focus, select:focus { border-color: var(--navy); box-shadow: 0 0 0 3px rgb
 }
 .approval input { width: auto; accent-color: var(--navy); }
 .approval.hot input { accent-color: #fff; }
+.approval.locked { color: var(--muted); }
+.approval input:disabled { cursor: not-allowed; }
 
 .checks { justify-content: flex-start; margin-top: 12px; }
 .checks label { display: flex; gap: 8px; align-items: center; font-size: 0.92rem; }

@@ -10,6 +10,8 @@ import {
   type JobSelector,
 } from "@/lib/commission-lookup";
 import { findRep } from "@/lib/commission";
+import { flagForJob } from "@/lib/credit-card-flag";
+import { readCreditCardFlags } from "@/lib/credit-card-flags";
 import { getCommissionDataSource } from "@/lib/data";
 import { booksFreshnessIso } from "@/lib/freshness";
 import { allowRequest, rateLimits } from "@/lib/rate-limit";
@@ -170,14 +172,21 @@ async function handle(request: Request, rawBody: string | null) {
       repId = rep.id;
     }
 
-    const snapshot = await getCommissionDataSource().loadSnapshot();
+    const [snapshot, flags] = await Promise.all([
+      getCommissionDataSource().loadSnapshot(),
+      readCreditCardFlags(),
+    ]);
+    const recordFor = (job: (typeof snapshot.jobs)[number]) =>
+      toCommissionRecord(job, snapshot, {
+        paidByCreditCard: flagForJob(job, flags)?.paidByCreditCard === true,
+      });
     if (lookup && !listing) {
       const matches = findSnapshotJobs(snapshot.jobs, input);
       if (matches.length === 0) {
         status = 404;
         return json({ error: "No job in the commission snapshot matches that estimate or job." }, 404);
       }
-      const results = matches.map((job) => toCommissionRecord(job, snapshot));
+      const results = matches.map((job) => recordFor(job));
       status = 200;
       if (results.length === 1) return json(results[0], 200);
       return json(
@@ -201,7 +210,7 @@ async function handle(request: Request, rawBody: string | null) {
         status = 404;
         return json({ error: "No job in the commission snapshot matches that estimate or job." }, 404);
       }
-      const results = matches.map((job) => toCommissionRecord(job, snapshot));
+      const results = matches.map((job) => recordFor(job));
       status = 200;
       if (results.length === 1) return json(results[0], 200);
       return json(
@@ -216,7 +225,7 @@ async function handle(request: Request, rawBody: string | null) {
     }
 
     const matched = filterSnapshotJobs(snapshot.jobs, { repId, since: input.since ?? null });
-    const results: CommissionRecord[] = matched.slice(0, LIST_LIMIT).map((job) => toCommissionRecord(job, snapshot));
+    const results: CommissionRecord[] = matched.slice(0, LIST_LIMIT).map((job) => recordFor(job));
     status = 200;
     return json(
       {

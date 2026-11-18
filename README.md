@@ -23,10 +23,13 @@ Only these reps earn commission:
 - If charged is at or under 90% of list, commission is **$0** unless a manager approved the price in writing. With that approval, the undersold formula applies and commission does not go below $0. List $1,000 at 5%, sold for $900, pays **$0**.
 - If list cannot be computed, commission = rate × the commissionable amount and the job is marked **list not verified**.
 - A job missing film or square footage is marked **needs review**.
+- Paid by credit card, and the commissionable amount is over $10,000: deduct 2.9% of that amount from the commission base after the list tier is chosen, then apply the rate. The fee cannot move a job into the undersold tiers. At $10,000 or under, the checkbox changes nothing. Example: $20,000 commissionable, fee $580, base $19,420, Blake at 15% pays **$2,913**. For undersold by less than 10% (and a manager-approved sale below the floor), let U be the undersold commission. Its base is U / rate. The fee is subtracted from that base and the rate is applied again: commission = U − rate × fee, and it does not go below $0. The shortfall in U still uses the original list and commissionable amount.
 
 List price is V-10.9 catalog sell $/SF × billed square feet, plus removal ($1.25/SF), C-Bond ($1.25/SF), and French panes ($3 each). An optional list override replaces that total when accounting already knows the pre-fee list.
 
 The math lives in [`src/lib/commission.ts`](src/lib/commission.ts). A future per-rep dashboard should import `priceJob` from that module instead of reimplementing it. [`scripts/engine/commission.py`](scripts/engine/commission.py) is the same policy for the data builder.
+
+Only an admin login can mark a job **Paid by credit card**. Kelly and Sarah see the checkbox, the fee, and the adjusted commission, and cannot change it. The mark is stored in the same private Vercel Blob store as the usage log, under the prefix `swt-commission-flags/`, keyed by job number (or the estimate number when the job has no separate job number). Each object records who changed it and when. It is not in this repository. Toggling recalculates in the browser immediately and is still there after the 30-minute snapshot rebuild, because the rebuild does not write that prefix.
 
 ## Sign in
 
@@ -57,7 +60,7 @@ Open [http://localhost:3000](http://localhost:3000).
 
 Set `AUTH_SECRET` on the Vercel project (Production, Preview, and Development) before deploying. The snapshot itself needs no other variables. The temporary passwords live in the repo as hashes.
 
-The bot API also needs `BOT_API_KEYS` on Production and Preview. Connect a private Vercel Blob store so usage history is kept. Neither the keys nor the usage log belong in git. Details are in [`docs/BOT_API.md`](docs/BOT_API.md).
+The bot API also needs `BOT_API_KEYS` on Production and Preview. Connect a private Vercel Blob store so usage history and the per-job credit-card flags are kept. Neither the keys, the usage log, nor the flags belong in git. Details are in [`docs/BOT_API.md`](docs/BOT_API.md).
 
 1. Import this repository as a Next.js project.
 2. Leave the build command as `npm run build` and the output as the Next.js default.

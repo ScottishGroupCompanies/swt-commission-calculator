@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FilmPicker } from "@/components/FilmPicker";
 import { ScottishLogo } from "@/components/ScottishLogo";
 import {
@@ -13,6 +13,7 @@ import {
 } from "@/lib/commission";
 import { booksDataLabel } from "@/lib/freshness";
 import { formatMoney, formatRate, formatSell } from "@/lib/format";
+import { creditCardFlagKey, flagForJob, type StoredCreditCardFlag } from "@/lib/credit-card-flag";
 import { isSoldQuoteStatus, quoteMatches } from "@/lib/quotes";
 import { priceSnapshotJob } from "@/lib/snapshot-price";
 import type { CatalogFilm, CommissionSnapshot, SnapshotJob } from "@/lib/types";
@@ -96,7 +97,7 @@ function jobToEdit(job: SnapshotJob): JobEdit {
   };
 }
 
-function priceEdit(rate: number, edit: JobEdit, sold: boolean): JobPriceResult {
+function priceEdit(rate: number, edit: JobEdit, sold: boolean, paidByCreditCard: boolean): JobPriceResult {
   return priceJob({
     rate,
     charged: parseNumber(edit.charged),
@@ -104,6 +105,7 @@ function priceEdit(rate: number, edit: JobEdit, sold: boolean): JobPriceResult {
     listOverride: parseNumber(edit.listOverride),
     managerApproved: edit.managerApproved,
     sold,
+    paidByCreditCard,
     lines: edit.lines.map((line) => ({
       sellPerSf: line.sellPerSf,
       sf: parseNumber(line.sf),
@@ -113,29 +115,37 @@ function priceEdit(rate: number, edit: JobEdit, sold: boolean): JobPriceResult {
   });
 }
 
+function cardNote(result: JobPriceResult): string {
+  if (!result.paidByCreditCard || result.charged == null || result.creditCardFee <= 0) return "";
+  const fee = formatMoney(result.creditCardFee);
+  const amount = formatMoney(result.charged);
+  const adjusted = formatMoney(result.commission);
+  if (result.commission === result.commissionBeforeCreditCard) {
+    return ` Credit card fee ${fee} (2.9% of ${amount}). Commission stays ${adjusted}.`;
+  }
+  return ` Credit card fee ${fee} (2.9% of ${amount}) was deducted from the commission base after the tier was chosen. Adjusted commission is ${adjusted}.`;
+}
+
 function explain(result: JobPriceResult, rateLabel: string): string {
+  let text: string;
   if (result.notSold) {
-    return "Not sold in Zoho Books — no commission.";
+    text = "Not sold in Zoho Books — no commission.";
+  } else if (result.commission == null) {
+    text = "Enter the pre-fee amount charged to calculate commission.";
+  } else if (!result.listVerified) {
+    text = `List not verified. Commission is ${rateLabel} of the charged amount.`;
+  } else if (result.belowFloor && !result.managerApproved) {
+    text = "Below the 10% floor. Commission is $0 unless a manager approved this price in writing.";
+  } else if (result.belowFloor && result.managerApproved) {
+    text = `Manager approved. Commission is ${rateLabel} of list minus half the shortfall, and it does not go below $0.`;
+  } else if (result.status === "undersold") {
+    text = `Undersold by less than 10%. Commission is ${rateLabel} of list minus half the shortfall.`;
+  } else if (result.status === "oversold") {
+    text = `Charged is above list, so commission is ${rateLabel} of the charged amount.`;
+  } else {
+    text = `Charged matches list, so commission is ${rateLabel} of the charged amount.`;
   }
-  if (result.commission == null) {
-    return "Enter the pre-fee amount charged to calculate commission.";
-  }
-  if (!result.listVerified) {
-    return `List not verified. Commission is ${rateLabel} of the charged amount.`;
-  }
-  if (result.belowFloor && !result.managerApproved) {
-    return "Below the 10% floor. Commission is $0 unless a manager approved this price in writing.";
-  }
-  if (result.belowFloor && result.managerApproved) {
-    return `Manager approved. Commission is ${rateLabel} of list minus half the shortfall, and it does not go below $0.`;
-  }
-  if (result.status === "undersold") {
-    return `Undersold by less than 10%. Commission is ${rateLabel} of list minus half the shortfall.`;
-  }
-  if (result.status === "oversold") {
-    return `Charged is above list, so commission is ${rateLabel} of the charged amount.`;
-  }
-  return `Charged matches list, so commission is ${rateLabel} of the charged amount.`;
+  return `${text}${cardNote(result)}`;
 }
 
 export function Calculator({
@@ -149,6 +159,33 @@ export function Calculator({
   const [query, setQuery] = useState("");
   const [jobId, setJobId] = useState("");
   const [edits, setEdits] = useState<Record<string, JobEdit>>({});
+  const [flags, setFlags] = useState<Record<string, StoredCreditCardFlag>>({});
+  const [flagsStatus, setFlagsStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [flagError, setFlagError] = useState<string | null>(null);
+  const [savingJobId, setSavingJobId] = useState<string | null>(null);
+  const saveSeq = useRef<Record<string, number>>({});
+  const isAdmin = username.toLowerCase() === "admin";
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/commission-flags", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("flags");
+        return (await response.json()) as { flags?: Record<string, StoredCreditCardFlag> };
+      })
+      .then((body) => {
+        if (cancelled) return;
+        setFlags(body.flags ?? {});
+        setFlagsStatus("ready");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setFlagsStatus("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const rep = REPS.find((item) => item.id === repId) ?? REPS[0];
   const repJobs = useMemo(
@@ -173,9 +210,15 @@ export function Calculator({
     () => (selected ? (edits[selected.id] ?? jobToEdit(selected)) : null),
     [selected, edits],
   );
+  const paidByCreditCard = selected
+    ? flagForJob(selected, flags)?.paidByCreditCard === true
+    : false;
   const live = useMemo(
-    () => (edit && selected ? priceEdit(rep.rate, edit, isSoldQuoteStatus(selected.quoteStatus)) : null),
-    [edit, rep.rate, selected],
+    () =>
+      edit && selected
+        ? priceEdit(rep.rate, edit, isSoldQuoteStatus(selected.quoteStatus), paidByCreditCard)
+        : null,
+    [edit, rep.rate, selected, paidByCreditCard],
   );
   const dirty = selected ? edits[selected.id] != null : false;
   const rateLabel = formatRate(rep.rate);
@@ -194,6 +237,63 @@ export function Calculator({
   function pickJob(job: SnapshotJob) {
     setJobId(job.id);
     setQuery("");
+  }
+
+  async function setPaidByCard(job: SnapshotJob, nextPaid: boolean) {
+    const key = creditCardFlagKey(job);
+    if (!key) return;
+    const seq = (saveSeq.current[job.id] ?? 0) + 1;
+    saveSeq.current[job.id] = seq;
+    const previous = flags[key];
+    setFlagError(null);
+    setSavingJobId(job.id);
+    setFlags((current) => ({
+      ...current,
+      [key]: {
+        paidByCreditCard: nextPaid,
+        updatedBy: username || "admin",
+        updatedAt: new Date().toISOString(),
+        estimateNumber: job.estimateNumber,
+        jobNumber: job.jobNumber,
+        quoteNumber: job.zoho,
+        jobId: job.id,
+      },
+    }));
+    try {
+      const response = await fetch("/api/commission-flags", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jobId: job.id, paidByCreditCard: nextPaid }),
+      });
+      const body = (await response.json().catch(() => ({}))) as {
+        error?: string;
+        key?: string;
+        flag?: StoredCreditCardFlag;
+      };
+      if (saveSeq.current[job.id] !== seq) return;
+      if (!response.ok || !body.flag || !body.key) {
+        setFlags((current) => {
+          const restored = { ...current };
+          if (previous) restored[key] = previous;
+          else delete restored[key];
+          return restored;
+        });
+        setFlagError(body.error || "Could not save the credit card flag.");
+        return;
+      }
+      setFlags((current) => ({ ...current, [body.key!]: body.flag! }));
+    } catch {
+      if (saveSeq.current[job.id] !== seq) return;
+      setFlags((current) => {
+        const restored = { ...current };
+        if (previous) restored[key] = previous;
+        else delete restored[key];
+        return restored;
+      });
+      setFlagError("Could not save the credit card flag.");
+    } finally {
+      if (saveSeq.current[job.id] === seq) setSavingJobId(null);
+    }
   }
 
   return (
@@ -546,6 +646,40 @@ export function Calculator({
                 </label>
               </div>
               <div className="field">
+                <span className="check-caption">Payment</span>
+                <label className={isAdmin ? "approval" : "approval locked"}>
+                  <input
+                    type="checkbox"
+                    checked={paidByCreditCard}
+                    disabled={!isAdmin || flagsStatus !== "ready" || savingJobId === selected.id}
+                    onChange={(event) => setPaidByCard(selected, event.target.checked)}
+                  />
+                  Paid by credit card
+                </label>
+                {flagsStatus === "loading" ? <p className="hint">Loading the saved payment flag.</p> : null}
+                {flagsStatus === "error" ? (
+                  <p className="hint">
+                    The saved payment flag could not be loaded. Refresh before changing it.
+                  </p>
+                ) : null}
+                {flagError ? <p className="hint">{flagError}</p> : null}
+                {paidByCreditCard && live.creditCardFee <= 0 ? (
+                  <p className="hint">
+                    The 2.9% fee applies only when the commissionable amount is over $10,000, so this
+                    checkbox does not change the commission.
+                  </p>
+                ) : null}
+                {!isAdmin ? (
+                  <p className="hint">Only an admin can change this. The fee still shows here.</p>
+                ) : null}
+                {flagForJob(selected, flags) ? (
+                  <p className="hint">
+                    Last change {flagForJob(selected, flags)?.updatedBy} ·{" "}
+                    {new Date(flagForJob(selected, flags)?.updatedAt || "").toLocaleString()}
+                  </p>
+                ) : null}
+              </div>
+              <div className="field">
                 <label htmlFor="override">List override (optional, pre-fee)</label>
                 <input
                   id="override"
@@ -615,6 +749,26 @@ export function Calculator({
                 <dt>Rate</dt>
                 <dd>{rateLabel}</dd>
               </div>
+              {live.paidByCreditCard ? (
+                <div>
+                  <dt>Credit card fee</dt>
+                  <dd className={live.creditCardFee > 0 ? "neg" : undefined}>
+                    {formatMoney(live.creditCardFee)}
+                  </dd>
+                </div>
+              ) : null}
+              {live.creditCardFee > 0 && live.commissionBeforeCreditCard != null ? (
+                <div>
+                  <dt>Before card fee</dt>
+                  <dd>{formatMoney(live.commissionBeforeCreditCard)}</dd>
+                </div>
+              ) : null}
+              {live.paidByCreditCard ? (
+                <div>
+                  <dt>Adjusted commission</dt>
+                  <dd>{formatMoney(live.commission)}</dd>
+                </div>
+              ) : null}
             </dl>
             {discountLines.length > 0 ? (
               <div className="excluded">
@@ -672,6 +826,13 @@ export function Calculator({
           list cannot be computed, commission is the rate times the commissionable amount and the
           job is marked list not verified. A job missing film or square footage is marked needs
           review.
+          When a job is marked paid by credit card and its commissionable amount is over $10,000,
+          a 2.9% fee on that amount is deducted from the commission base after the list tier is
+          chosen, then the rate is applied. Example: $20,000 commissionable, fee $580, base
+          $19,420, Blake at 15% pays $2,913. At $10,000 or under, the checkbox does not change
+          the commission. The fee cannot push a job into the undersold tiers. For an undersold
+          job under 10%, the fee is subtracted from the commission base that the undersold
+          formula already produced (commission = that result minus the rate times the fee).
         </p>
       </details>
     </div>

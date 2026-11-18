@@ -17,6 +17,37 @@
  * - List cannot be computed: commission = rate × charged, listVerified = false
  *   ("list not verified")
  *
+ * Paid by credit card (owner-confirmed 2026-11-18). The tier above is chosen
+ * from the original commissionable amount. The credit-card fee is applied
+ * after that, so it cannot move a job into a lower tier.
+ *
+ * The fee is 2.9% of the commissionable amount (film, removal, C-Bond, and
+ * labor, minus discounts; the 4% fee, travel, and lifts are already excluded).
+ * It applies only when the job is marked paid by credit card AND that amount
+ * is strictly over $10,000. At $10,000 or under, the mark changes nothing.
+ *
+ *   fee = half-up cents of (commissionable cents × 29 / 1000)
+ *
+ * At or over list, and when list is not verified (the rate multiplies the
+ * commissionable amount):
+ *   commission base = commissionable − fee
+ *   commission = rate × commission base
+ *   Example: $20,000 commissionable, Blake 15%
+ *     fee = $580, base = $19,420, commission = $2,913
+ *
+ * Undersold by less than 10%, and a below-floor sale a manager approved
+ * (both use the same formula). Let U be that commission, already rounded
+ * to cents and floored at $0:
+ *   U = round(rate × list − 0.5 × (list − commissionable))
+ * U's commission base is B = U / rate (the amount which, times the rate,
+ * equals U). Subtract the fee from that base, then apply the rate again.
+ * The half-shortfall penalty stays on the original list and commissionable
+ * amount, because the tier was already chosen:
+ *   commission = round(rate × (B − fee)) = round(U − rate × fee), floored at $0
+ *
+ * A below-floor sale with no manager approval stays $0. The fee is still
+ * reported when the amount is over $10,000, and it does not raise the pay.
+ *
  * Only Dana (7%), Amy (5%), Blake (15%), Scott (15%), and John (15%) earn commission.
  */
 
@@ -24,6 +55,13 @@ export const PRICING_VERSION = "V-10.9" as const;
 
 /** Documented only. List and charged figures passed into this module are already pre-fee. */
 export const EXCLUDED_FEE_RATE = 0.04;
+
+/**
+ * Card-processing deduction. 2.9% of the commissionable amount, and only when
+ * that amount is strictly over CREDIT_CARD_FEE_THRESHOLD.
+ */
+export const CREDIT_CARD_FEE_RATE = 0.029;
+export const CREDIT_CARD_FEE_THRESHOLD = 10_000;
 
 /** Film Pricing add-on rates from the V-10.9 Preferences sheet. */
 export const ADDON_RATES = {
@@ -109,6 +147,15 @@ export type CommissionResult = {
   belowFloor: boolean;
   managerApproved: boolean;
   reason: string | null;
+  /** True when accounting marked this job paid by credit card. */
+  paidByCreditCard: boolean;
+  /**
+   * 2.9% of the commissionable amount when the card fee applies, otherwise 0.
+   * The tier is chosen before this is subtracted.
+   */
+  creditCardFee: number;
+  /** Commission from the tier formula before the credit-card fee. */
+  commissionBeforeCreditCard: number | null;
 };
 
 export type FilmLineInput = {
@@ -144,6 +191,8 @@ export type JobPriceInput = {
    * Omitted means the caller already knows the quote is sold.
    */
   sold?: boolean;
+  /** Accounting marked the job paid by credit card. Omitted means no. */
+  paidByCreditCard?: boolean;
 };
 
 export type JobPriceResult = {
@@ -162,6 +211,11 @@ export type JobPriceResult = {
   usedOverride: boolean;
   reasons: string[];
   lineAmounts: Array<number | null>;
+  paidByCreditCard: boolean;
+  /** 2.9% of the commissionable amount when the card rule applies, otherwise 0. */
+  creditCardFee: number;
+  /** Commission from the tier formula before the credit-card fee. */
+  commissionBeforeCreditCard: number | null;
 };
 
 /** Half-up rounding to cents. */
@@ -187,6 +241,74 @@ export function clampCommission(amount: number): number {
 }
 
 /**
+ * Credit-card fee in dollars. Half-up on cents of commissionable × 29 / 1000.
+ * $20,000 → $580. Callers still have to check the $10,000 threshold.
+ */
+export function creditCardProcessingFee(commissionable: number): number {
+  const cents = toCents(commissionable);
+  const feeCents = Math.round((Math.abs(cents) * 29) / 1000);
+  return (cents < 0 ? -feeCents : feeCents) / 100;
+}
+
+/** True when the checkbox is on and the commissionable amount is over $10,000. */
+export function creditCardFeeApplies(
+  paidByCreditCard: boolean,
+  commissionable: number | null | undefined,
+): boolean {
+  if (!paidByCreditCard || !isFiniteNumber(commissionable)) return false;
+  return toCents(commissionable) > toCents(CREDIT_CARD_FEE_THRESHOLD);
+}
+
+type FeeTarget = {
+  charged: number | null;
+  commission: number | null;
+  commissionBase: number | null;
+  rate: number;
+};
+
+/**
+ * Subtract the card fee after the tier is known.
+ * At/over list and list-not-verified: the rate multiplies (commissionable − fee).
+ * Undersold formula: commission = round(U − rate × fee), where U is the
+ * already-rounded undersold commission. That is rate × (U / rate − fee).
+ */
+export function applyCreditCardFee<T extends FeeTarget>(
+  result: T,
+  paidByCreditCard: boolean,
+): T & Pick<CommissionResult, "paidByCreditCard" | "creditCardFee" | "commissionBeforeCreditCard"> {
+  const flagged = Boolean(paidByCreditCard);
+  const before = result.commission;
+  const applies = creditCardFeeApplies(flagged, result.charged);
+  const fee = applies && result.charged != null ? creditCardProcessingFee(result.charged) : 0;
+  const card = {
+    paidByCreditCard: flagged,
+    creditCardFee: fee,
+    commissionBeforeCreditCard: before,
+  };
+  if (!applies || before == null || result.charged == null || fee === 0) {
+    return { ...result, ...card };
+  }
+
+  if (result.commissionBase != null) {
+    const commissionBase = roundMoney(result.commissionBase - fee);
+    return {
+      ...result,
+      ...card,
+      commissionBase,
+      commission: clampCommission(result.rate * commissionBase),
+    };
+  }
+
+  // Undersold formula, including a manager-approved sale below the floor.
+  // U is `before`. Its base is U / rate. Subtract the fee from that base.
+  return {
+    ...result,
+    ...card,
+    commission: clampCommission(before - result.rate * fee),
+  };
+}
+
+/**
  * True when charged is at or under 90% of list, compared in cents.
  * `chargedCents * 10 <= listCents * 9` is the same test as charged <= 0.9 × list.
  */
@@ -206,15 +328,15 @@ export function undersoldCommission(rate: number, listPrice: number, charged: nu
 }
 
 /**
- * Commission for one job from a pre-fee list and a pre-fee charged amount.
- * Mirrors scripts/engine/commission.py.
+ * Tier commission for one job from a pre-fee list and a pre-fee charged amount.
+ * The credit-card fee is not applied here. Mirrors scripts/engine/commission.py.
  */
-export function commissionFromListAndCharged(
+function commissionTier(
   rate: number,
   charged: number | null,
   listPrice: number | null,
   managerApproved = false,
-): CommissionResult {
+): Omit<CommissionResult, "paidByCreditCard" | "creditCardFee" | "commissionBeforeCreditCard"> {
   const approved = Boolean(managerApproved);
   if (!isFiniteNumber(charged)) {
     return {
@@ -289,13 +411,38 @@ export function commissionFromListAndCharged(
   };
 }
 
+/**
+ * Commission for one job. The list/undersold tier uses the original
+ * commissionable amount. A credit-card fee, when it applies, is deducted
+ * from that tier's commission base afterwards.
+ */
+export function commissionFromListAndCharged(
+  rate: number,
+  charged: number | null,
+  listPrice: number | null,
+  managerApproved = false,
+  paidByCreditCard = false,
+): CommissionResult {
+  return applyCreditCardFee(
+    commissionTier(rate, charged, listPrice, managerApproved),
+    paidByCreditCard,
+  );
+}
+
 export function computeCommission(
   rate: number,
   charged: number | null,
   listPrice: number | null,
   managerApproved = false,
+  paidByCreditCard = false,
 ): CommissionResult {
-  return commissionFromListAndCharged(rate, charged, listPrice, managerApproved);
+  return commissionFromListAndCharged(
+    rate,
+    charged,
+    listPrice,
+    managerApproved,
+    paidByCreditCard,
+  );
 }
 
 /** Unrounded list dollars for one film line, including removal and C-Bond on that SF. */
@@ -370,26 +517,35 @@ export function priceJob(input: JobPriceInput): JobPriceResult {
     listOverride: input.listOverride,
   });
   const charged = isFiniteNumber(input.charged) ? input.charged : null;
+  const paidByCreditCard = Boolean(input.paidByCreditCard);
   if (input.sold === false) {
+    const unsold = applyCreditCardFee(
+      {
+        listPrice: list.listPrice,
+        charged: charged == null ? null : roundMoney(charged),
+        difference:
+          list.listVerified && list.listPrice != null && charged != null
+            ? roundMoney(roundMoney(charged) - list.listPrice)
+            : null,
+        commissionBase: null,
+        commission: 0,
+        rate: input.rate,
+        status: "not_sold" as const,
+        listVerified: list.listVerified,
+        needsReview: list.missingFilm || list.missingSf || list.frenchInvalid,
+        belowFloor: false,
+        managerApproved: Boolean(input.managerApproved),
+        notSold: true,
+        usedOverride: list.usedOverride,
+        reasons: ["Not sold in Zoho Books — no commission."],
+        lineAmounts: list.lineAmounts,
+      },
+      paidByCreditCard,
+    );
     return {
-      listPrice: list.listPrice,
-      charged: charged == null ? null : roundMoney(charged),
-      difference:
-        list.listVerified && list.listPrice != null && charged != null
-          ? roundMoney(roundMoney(charged) - list.listPrice)
-          : null,
-      commissionBase: null,
+      ...unsold,
+      // A quote that is not sold pays $0. The fee is reported, not added to pay.
       commission: 0,
-      rate: input.rate,
-      status: "not_sold",
-      listVerified: list.listVerified,
-      needsReview: list.missingFilm || list.missingSf || list.frenchInvalid,
-      belowFloor: false,
-      managerApproved: Boolean(input.managerApproved),
-      notSold: true,
-      usedOverride: list.usedOverride,
-      reasons: ["Not sold in Zoho Books — no commission."],
-      lineAmounts: list.lineAmounts,
     };
   }
   const pay = commissionFromListAndCharged(
@@ -397,6 +553,7 @@ export function priceJob(input: JobPriceInput): JobPriceResult {
     charged,
     list.listVerified ? list.listPrice : null,
     input.managerApproved,
+    paidByCreditCard,
   );
 
   const reasons: string[] = [];
@@ -426,5 +583,8 @@ export function priceJob(input: JobPriceInput): JobPriceResult {
     usedOverride: list.usedOverride,
     reasons,
     lineAmounts: list.lineAmounts,
+    paidByCreditCard: pay.paidByCreditCard,
+    creditCardFee: pay.creditCardFee,
+    commissionBeforeCreditCard: pay.commissionBeforeCreditCard,
   };
 }
