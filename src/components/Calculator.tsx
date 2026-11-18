@@ -11,6 +11,7 @@ import {
   type JobPriceResult,
   type Rep,
 } from "@/lib/commission";
+import { booksDataLabel } from "@/lib/freshness";
 import { formatMoney, formatRate, formatSell } from "@/lib/format";
 import { isSoldQuoteStatus, quoteMatches } from "@/lib/quotes";
 import { priceSnapshotJob } from "@/lib/snapshot-price";
@@ -214,10 +215,7 @@ export function Calculator({
           Pick a sales rep, then one job. Film, square footage, charged amount, and add-ons
           recalculate commission as you edit.
         </p>
-        <p className="asof">
-          Data as of {snapshot.asOf}. Prices exclude the 4% fee. Edits stay in this browser and
-          are not written to Zoho.
-        </p>
+        <p className="asof">{booksDataLabel(snapshot)}</p>
       </header>
 
       <section className="finder" aria-label="Find a job">

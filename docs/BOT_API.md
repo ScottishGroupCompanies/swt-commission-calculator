@@ -85,7 +85,7 @@ One match returns the record. Example shape (WT-03533 is below the 10% floor, so
 }
 ```
 
-`fetchedAt` is when the Books estimate facts in the snapshot were read. `dataAsOf` is the master-sheet timestamp. `rate` is a fraction (`0.05` is 5%) and is null when the salesperson is not an earner. `undersoldPercent` is `(list − charged) / list` in percent: positive is undersold, negative is over list, null when list is unknown.
+`fetchedAt` is the later of when the Books estimates were read and when the job list was built. It is the same instant as the calculator label "Zoho Books data as of". `dataAsOf` is the master-sheet timestamp. `rate` is a fraction (`0.05` is 5%) and is null when the salesperson is not an earner. `undersoldPercent` is `(list − charged) / list` in percent: positive is undersold, negative is over list, null when list is unknown.
 
 `policy` is one of:
 

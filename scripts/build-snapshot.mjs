@@ -1,18 +1,24 @@
 /**
- * Package the bundled calculator snapshot from the prototype job export
- * and the V-10.9 film catalog.
+ * Package the bundled calculator snapshot from the prototype job export,
+ * Zoho Books estimates, and the V-10.9 film catalog.
  *
  *   node scripts/build-snapshot.mjs
  *
  * Inputs:
  *   data/source/jobs.json              (from scripts/build_commission_data.py, or the checked-in export)
+ *   data/source/books-estimates.json   (Books status, dates, salesperson, and line items)
  *   data/source/swt-film-catalog.csv
  * Output:
  *   src/data/snapshot.json
  *
- * Commission dollars on the source jobs are ignored. The app recalculates
- * with src/lib/commission.ts.
+ * Every 2026 estimate in books-estimates.json that is not already in jobs.json
+ * is added. Film matching and square feet come from scripts/books_jobs.py,
+ * which uses scripts/build_commission_data.py. Commission dollars on the
+ * source jobs are ignored. The app recalculates with src/lib/commission.ts.
+ *
+ * Requires python3. Does not call Zoho.
  */
+import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -104,11 +110,18 @@ function mapFilm(film) {
 
 const source = JSON.parse(readFileSync(jobsPath, "utf8"));
 const books = JSON.parse(readFileSync(booksPath, "utf8"));
+const supplemental = JSON.parse(
+  execFileSync("python3", [path.join(root, "scripts/books_jobs.py")], {
+    cwd: root,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  }),
+);
 const byEstimateId = new Map(
   (books.estimates || []).map((estimate) => [estimate.estimateId, estimate]),
 );
 const catalog = parseCatalog(readFileSync(catalogPath, "utf8"));
-const jobs = (source.jobs || []).map((job) => {
+const jobs = [...(source.jobs || []), ...(supplemental.jobs || [])].map((job) => {
   const quote = byEstimateId.get(job.estimateId) || null;
   const acceptedDate = quote?.acceptedDate || job.acceptedDate || null;
   return {
@@ -161,6 +174,8 @@ console.log(
       jobs: snapshot.jobs.length,
       catalog: snapshot.catalog.length,
       booksEstimates: byEstimateId.size,
+      booksJobsAdded: (supplemental.jobs || []).length,
+      missingLineItems: supplemental.missingLineItems || [],
       withQuote: snapshot.jobs.filter((job) => job.quoteStatus).length,
     },
     null,

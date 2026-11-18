@@ -11,6 +11,7 @@ import {
 } from "@/lib/commission-lookup";
 import { findRep } from "@/lib/commission";
 import { getCommissionDataSource } from "@/lib/data";
+import { booksFreshnessIso } from "@/lib/freshness";
 import { allowRequest, rateLimits } from "@/lib/rate-limit";
 import { clientIp, recordUsage, safeQueryString, userAgent } from "@/lib/usage-log";
 
@@ -181,7 +182,7 @@ async function handle(request: Request, rawBody: string | null) {
       if (results.length === 1) return json(results[0], 200);
       return json(
         {
-          fetchedAt: snapshot.booksAsOf || snapshot.asOfIso,
+          fetchedAt: booksFreshnessIso(snapshot),
           dataAsOf: snapshot.asOf,
           count: results.length,
           results,
@@ -205,7 +206,7 @@ async function handle(request: Request, rawBody: string | null) {
       if (results.length === 1) return json(results[0], 200);
       return json(
         {
-          fetchedAt: snapshot.booksAsOf || snapshot.asOfIso,
+          fetchedAt: booksFreshnessIso(snapshot),
           dataAsOf: snapshot.asOf,
           count: results.length,
           results,
@@ -219,7 +220,7 @@ async function handle(request: Request, rawBody: string | null) {
     status = 200;
     return json(
       {
-        fetchedAt: snapshot.booksAsOf || snapshot.asOfIso,
+        fetchedAt: booksFreshnessIso(snapshot),
         dataAsOf: snapshot.asOf,
         matched: matched.length,
         count: results.length,

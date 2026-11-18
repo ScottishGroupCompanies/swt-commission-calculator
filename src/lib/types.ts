@@ -68,11 +68,37 @@ export interface CommissionDataSource {
   loadSnapshot(): Promise<CommissionSnapshot>;
 }
 
-/** One Zoho Books estimate, the fields a sync must preserve. */
+/**
+ * One Books line, the fields a sync must write.
+ * `category` is the item custom field cf_category. "Fee" lines (or a name
+ * containing "fee") are the 4% fee and are not part of list or pre-fee charged.
+ */
+export type BooksLineItem = {
+  name: string;
+  description: string;
+  quantity: number;
+  rate: number;
+  itemTotal: number;
+  unit: string;
+  category: string | null;
+};
+
+/**
+ * One Zoho Books estimate, the fields a sync must write.
+ * `date` is the estimate date (yyyy-mm-dd). A 2026 quote with no accepted
+ * date is still included when `date` is in 2026.
+ * `total` is the Books total and includes the 4% fee when a fee line is present.
+ * `lineItems` are required to compute list price. An estimate with no
+ * matchable film line is kept and flagged list not verified.
+ */
 export type BooksEstimateFact = {
   estimateId: string;
   estimateNumber: string;
   status: string;
   acceptedDate: string | null;
+  date?: string | null;
   salesperson: string | null;
+  customerName?: string | null;
+  total?: number | null;
+  lineItems?: BooksLineItem[];
 };

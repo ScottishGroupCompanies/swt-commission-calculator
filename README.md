@@ -69,9 +69,56 @@ The page reads the checked-in snapshot at build time. It does not call Zoho.
 
 Zoho Books is the source of truth for whether a quote was sold, who sold it, and the date. A job pays commission only when its Books status is **accepted** or **invoiced**. Anything else shows “Not sold in Zoho Books — no commission” and $0. Date sold is the Books `accepted_date`. The rep is the Books salesperson. Dana, Amy, Blake, Scott, and John are the only commissionable reps.
 
-`data/source/books-estimates.json` holds those Books fields. `npm run data:build` copies them onto each job in the snapshot. A future server sync can replace that file, or replace `getCommissionDataSource()` with the reader sketched in `src/lib/data/zoho.ts`, and return the same snapshot shape.
+`data/source/books-estimates.json` holds those Books fields, including line items. `npm run data:build` copies them onto each sheet job and **adds a snapshot job for every 2026 estimate that is not already in `jobs.json`**. A quote is already represented when its Books estimate id, estimate number, or `WT-#####` base key is on a job. 2026 means `date`, `acceptedDate`, or `createdDate` is in 2026. A quote with none of those dates is included when its WT number is higher than the last job in `jobs.json`, so a new draft is not dropped.
 
-Film lines, square feet, and the pre-fee charged amount still come from the bundled job export. Commission is not stored in the snapshot; the app calculates it.
+Film, square feet, and the pre-fee charged amount for those new jobs come from the estimate line items and `swt-film-catalog.csv`, using the same matching as `scripts/build_commission_data.py`. Commission is not stored in the snapshot; the app calculates it. A non-sold status (anything other than accepted or invoiced) shows “Not sold in Zoho Books — no commission” and $0. An estimate whose film lines do not match the catalog is still added and flagged **list not verified**.
+
+The 30-minute sync only needs to replace `data/source/books-estimates.json` and run:
+
+```bash
+npm run data:build
+```
+
+`data:build` needs `python3` on the sync box. It does not call Zoho. Commit `data/source/books-estimates.json` and `src/data/snapshot.json`.
+
+### What the sync must write
+
+`books-estimates.json` is one JSON object:
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `source` | yes | `"zoho-books"` |
+| `organizationId` | yes | Books organization id |
+| `fetchedAt` | yes | ISO-8601 UTC time the estimates were read, e.g. `2026-11-17T22:16:18Z`. This is the freshness label. |
+| `estimates` | yes | Array of estimate objects |
+
+Each estimate:
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `estimateId` | yes | Books estimate id |
+| `estimateNumber` | yes | e.g. `WT-03645-QT01` |
+| `status` | yes | Lowercase Books status: `draft`, `sent`, `accepted`, `invoiced`, `declined`, … |
+| `acceptedDate` | yes | `yyyy-mm-dd`, or `null` when the quote is not accepted |
+| `date` | yes | Estimate date `yyyy-mm-dd`. This is how an unaccepted 2026 quote is recognized. |
+| `salesperson` | yes | Books salesperson name, or `null` |
+| `customerName` | yes | Books customer name |
+| `total` | yes | Books total. This includes the 4% fee when a fee line is present. |
+| `lineItems` | yes | Array of line items. Use `[]` only when Books has no lines. Do not omit the key. |
+
+Each line item:
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `name` | yes | Books item name |
+| `description` | yes | Books line description (film name lives here) |
+| `quantity` | yes | Quantity. For film this is square feet when `unit` is `sf`. |
+| `rate` | yes | Books rate |
+| `itemTotal` | yes | Books line total |
+| `unit` | yes | Books unit, e.g. `sf`. Empty string when Books has none. |
+| `category` | yes | Item custom field `cf_category`, or `null`. `Fee` marks the 4% fee line. A name containing “fee” is also treated as the fee. |
+
+Pre-fee charged is the sum of line totals that are not the fee. List price is catalog sell $/SF × billed square feet, plus removal and C-Bond when the description says so. The page label and the bot API `fetchedAt` use the later of `fetchedAt` and the job export time.
 
 ```bash
 npm run data:build
@@ -79,10 +126,11 @@ npm run data:build
 
 That reads:
 
-- `data/source/jobs.json` — job facts exported from the 2026 master sheet and Zoho Books estimates
+- `data/source/jobs.json` — job facts exported from the 2026 master sheet
+- `data/source/books-estimates.json` — Books estimates, including line items for quotes that are not in the sheet export
 - `data/source/swt-film-catalog.csv` — V-10.9 cost, pricing group, and sell $/SF
 
-and writes `src/data/snapshot.json`, including the source file’s **data as of** timestamp.
+and writes `src/data/snapshot.json`. The page shows Zoho Books freshness from `fetchedAt` (`booksAsOf` on the snapshot).
 
 To pull a newer read-only export from Zoho, put credentials in an untracked `.env` (see `.env.example`) and place the master-sheet dump at `data/raw/sheet_2026.json` plus `data/raw/estimate_index.json`. Then:
 

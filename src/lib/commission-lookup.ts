@@ -1,4 +1,5 @@
 import { findRep, roundMoney, type JobPriceResult } from "@/lib/commission";
+import { booksFreshnessIso } from "@/lib/freshness";
 import { normalizeQuoteNumber } from "@/lib/quotes";
 import { priceSnapshotJob } from "@/lib/snapshot-price";
 import type { CommissionSnapshot, SnapshotJob } from "@/lib/types";
@@ -40,7 +41,10 @@ export type CommissionRecord = {
   undersoldPercent: number | null;
   commission: number | null;
   policy: PolicyBranch;
-  /** When the Books estimate facts in this snapshot were read. */
+  /**
+   * Later of the Books fetch time and the job-list build time.
+   * Same instant as the calculator's "Zoho Books data as of" label.
+   */
   fetchedAt: string;
   /** Master-sheet data-as-of label baked into the snapshot. */
   dataAsOf: string;
@@ -157,7 +161,7 @@ export function toCommissionRecord(
     undersoldPercent: undersoldPercent(price.listPrice, price.charged),
     commission: price.commission,
     policy: branch.policy,
-    fetchedAt: snapshot.booksAsOf || snapshot.asOfIso,
+    fetchedAt: booksFreshnessIso(snapshot),
     dataAsOf: snapshot.asOf,
   };
 }
