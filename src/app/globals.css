@@ -284,6 +284,7 @@ input:focus, select:focus { border-color: var(--navy); box-shadow: 0 0 0 3px rgb
 }
 .excluded-name { font-weight: 700; }
 .excluded-amount { font-variant-numeric: tabular-nums; font-weight: 650; text-align: right; }
+.excluded-amount.neg { color: var(--under); }
 .excluded-reason { color: var(--muted); font-size: 0.82rem; grid-column: 1 / -1; }
 .excluded-desc {
   color: var(--muted);

@@ -126,10 +126,11 @@ def estimate_total(estimate: dict) -> float | None:
 def commissionable_amount(estimate: dict, lines: list[dict]) -> dict:
     """What commission is calculated on, plus the lines left out.
 
-    With line items, charged is the sum of commissionable lines only
-    (window film, film removal, C-Bond, labor-only install). Fees, travel,
-    lifts, and other non-film extras are excluded. An unclassified line is
-    excluded and the job is flagged commissionable amount not verified.
+    With line items, charged is the sum of commissionable lines
+    (window film, film removal, C-Bond, labor-only install) minus negative
+    discount lines. Fees, travel, lifts, and other non-film extras are
+    excluded. An unclassified line is excluded and the job is flagged
+    commissionable amount not verified. A discount does not raise that flag.
 
     Without line items, keep the previous behavior: strip a flat 4% from
     `total`, and flag the job line items not available.
@@ -142,6 +143,7 @@ def commissionable_amount(estimate: dict, lines: list[dict]) -> dict:
             "quoteAmount": summary["lineTotal"] if quote is None else quote,
             "commissionableAmount": summary["commissionable"],
             "excludedLines": summary["excluded"],
+            "discountLines": summary["discounts"],
             "commissionableAmountVerified": not summary["ambiguous"],
             "lineItemsAvailable": True,
             "commissionableLines": summary["commissionableLines"],
@@ -153,6 +155,7 @@ def commissionable_amount(estimate: dict, lines: list[dict]) -> dict:
         "quoteAmount": total,
         "commissionableAmount": charged,
         "excludedLines": [],
+        "discountLines": [],
         "commissionableAmountVerified": True,
         "lineItemsAvailable": False,
         "commissionableLines": [],
@@ -198,6 +201,7 @@ def estimate_to_job(estimate: dict, catalog_by: dict) -> dict:
         "quoteAmount": priced["quoteAmount"],
         "commissionableAmount": priced["commissionableAmount"],
         "excludedLines": priced["excludedLines"],
+        "discountLines": priced["discountLines"],
         "commissionableAmountVerified": priced["commissionableAmountVerified"],
         "lineItemsAvailable": priced["lineItemsAvailable"],
         "estimateId": estimate_id or None,

@@ -18,6 +18,7 @@ type Summary = {
   lineTotal: number;
   ambiguous: boolean;
   excluded: Array<{ name: string; amount: number; reason: string }>;
+  discounts: Array<{ name: string; amount: number; reason: string; description: string }>;
   decisions: Decision[];
 };
 
@@ -105,7 +106,7 @@ describe("commissionable line classification", () => {
     expect(decision([line({ name: "Replacement Glass", description: "Replace 1 window", itemTotal: 325, category: "Material - Other" })], "Replacement Glass").kind).toBe("extra");
   });
 
-  it("counts a film-and-labor reimbursement and flags a mixed glass line", () => {
+  it("counts a film-and-labor reimbursement, subtracts a military discount, and flags a mixed glass line", () => {
     const summary = summarize([
       line({ name: "Other Charge", description: "Film & Labor Reimbursement - $120.36", itemTotal: 120.36, unit: "pc", category: "Service" }),
       line({
@@ -120,11 +121,57 @@ describe("commissionable line classification", () => {
     expect(summary.decisions.map((item) => [item.kind, item.counts])).toEqual([
       ["film", true],
       ["ambiguous", false],
+      ["discount", true],
+      ["ambiguous", false],
+    ]);
+    expect(summary.commissionable).toBe(70.36);
+    expect(summary.discounts).toEqual([
+      expect.objectContaining({ name: "Over/Short", amount: -50, reason: "Discount" }),
+    ]);
+    expect(summary.ambiguous).toBe(true);
+  });
+
+  it("subtracts negative discounts and still flags unknown positive lines", () => {
+    const summary = summarize([
+      line({ name: "Security Film", description: "Install film", itemTotal: 12100.05, unit: "sf", category: "Material - Film" }),
+      line({ name: "Over/Short", description: "Less 5% Military", itemTotal: -605, category: "Material - Other" }),
+      line({ name: "Discount", description: "Courtesy", itemTotal: -10, category: "Material - Other" }),
+      line({ name: "Solar Film", description: "Discount", itemTotal: -110.26, unit: "sf", category: "Material - Film" }),
+      line({ name: "Other Charge", description: "Military Discount", itemTotal: -25, category: "Service" }),
+      line({ name: "Other Charge", description: "Less 10% for the HOA", itemTotal: -20, category: "Service" }),
+      line({ name: "Site Visit", description: "Discount", itemTotal: -15, category: "Service" }),
+      line({ name: "Solar Film", description: "Credit one pane", itemTotal: -30, unit: "sf", category: "Material - Film" }),
+      line({ name: "Fee", description: "Less 5% Military", itemTotal: -8, category: "Fee" }),
+      line({ name: "Trip Charge", description: "Mileage credit", itemTotal: -12, category: "Service" }),
+      line({ name: "Attachment", description: "Attachment on 3 windows and 1 door. Discounted", itemTotal: 31.25, category: "Material - Other" }),
+      line({ name: "Over/Short", description: "Added scope", itemTotal: 40, category: "Material - Other" }),
+      line({ name: "Widget", description: "Call the office", itemTotal: 15, category: "Service" }),
+    ]);
+    expect(summary.commissionable).toBe(11284.79);
+    expect(summary.ambiguous).toBe(true);
+    expect(summary.decisions.map((item) => [item.kind, item.counts])).toEqual([
+      ["film", true],
+      ["discount", true],
+      ["discount", true],
+      ["discount", true],
+      ["discount", true],
+      ["discount", true],
+      ["discount", true],
+      ["film", true],
+      ["fee", false],
+      ["travel", false],
+      ["extra", false],
       ["ambiguous", false],
       ["ambiguous", false],
     ]);
-    expect(summary.commissionable).toBe(120.36);
-    expect(summary.ambiguous).toBe(true);
+    expect(summary.discounts.map((item) => item.amount)).toEqual([-605, -10, -110.26, -25, -20, -15]);
+    expect(summary.excluded.map((item) => item.reason)).toEqual([
+      "Fee",
+      "Travel / mileage",
+      "Non-film extra",
+      "Not classified",
+      "Not classified",
+    ]);
   });
 
   it("counts known film item names even when the category is blank", () => {

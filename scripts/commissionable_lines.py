@@ -12,6 +12,9 @@ Counts toward the commissionable amount:
   - film removal
   - C-Bond
   - labor-only install
+  - a negative discount (Over/Short, Discount, Less X%, military, and
+    similar). The line total is negative, so it reduces the commissionable
+    amount. A discount does not flag the job.
 
 Does not count (left out, job stays verified):
   - fees, including the 4% fee and credit-card fees
@@ -23,7 +26,9 @@ Does not count (left out, job stays verified):
 
 A line that is none of those, or that mixes commissionable work with an
 excluded charge in one amount, is left out and marked not classified. The
-job is then flagged "commissionable amount not verified".
+job is then flagged "commissionable amount not verified". A positive
+Over/Short or other unknown positive line is still not classified. A fee
+stays a fee even when the description mentions a discount.
 
 A film line stays film even when the description mentions removal, attachment,
 or equipment as part of that film scope. A trip, lift, or fee stays excluded
@@ -64,10 +69,11 @@ REASONS = {
     "lift": "Lift / equipment",
     "permit": "Permit / parking",
     "extra": "Non-film extra",
+    "discount": "Discount",
     "ambiguous": "Not classified",
 }
 
-COUNTS = {"film", "removal", "cbond", "labor"}
+COUNTS = {"film", "removal", "cbond", "labor", "discount"}
 
 _FEE_TEXT = re.compile(
     r"\b(credit\s*card\s*fee|card\s*fee|cc\s*fee|processing\s*fee|convenience\s*fee|4\s*%\s*fee)\b",
@@ -90,6 +96,12 @@ _REMOVAL_TEXT = re.compile(
 )
 _FILM_WORD = re.compile(r"\bfilms?\b", re.I)
 _PURPOSE_ONLY = re.compile(r"\b(?:to|for)\s+install", re.I)
+# "discounted" is not a discount word. "%" is not a word character, so the
+# Less X% alternative cannot end on a word boundary.
+_DISCOUNT_PHRASE = re.compile(
+    r"\b(?:military(?:\s+discount)?|discounts?)\b|less\s*\d+(?:\.\d+)?\s*%",
+    re.I,
+)
 
 
 def money(value: float) -> float:
@@ -218,8 +230,17 @@ def _is_bullet_name(name: str) -> bool:
 
 
 def _is_discount_name(name: str) -> bool:
-    item = _space(name)
-    return item in {"over/short", "over short", "discount"} or "over/short" in item or item.endswith(" discount")
+    item = re.sub(r"\s*/\s*", "/", _space(name))
+    if item in {"over/short", "over short", "discount", "military discount"}:
+        return True
+    return "over/short" in item or item.endswith(" discount") or item.startswith("discount")
+
+
+def _is_clear_discount(name: str, description: str) -> bool:
+    """Over/Short, Discount, Less X%, military, or the word discount."""
+    if _is_discount_name(name):
+        return True
+    return bool(_DISCOUNT_PHRASE.search(f"{name}\n{description}"))
 
 
 def _mentions_commissionable_work(text: str) -> bool:
@@ -276,13 +297,17 @@ def _describe_generic(description: str) -> dict:
         return _decision("cbond")
     if film_work:
         return _decision("film")
-    if re.search(r"\b(military\s+discount|less\s+\d+\s*%)\b", text, re.I):
-        return _decision("ambiguous")
+    # A positive "Less 5%" or "military discount" on a generic line is still
+    # not a known charge. Negative discounts are classified before this runs.
     return _decision("ambiguous")
 
 
 def classify_line(line: dict) -> dict:
-    """Classify one Books line. `counts` is true only for film, removal, C-Bond, and labor."""
+    """Classify one Books line.
+
+    `counts` is true for film, removal, C-Bond, labor, and a negative discount.
+    A discount total is negative, so counting it subtracts from commissionable.
+    """
     name = str(line.get("name") or "")
     description = str(line.get("description") or "")
     category = category_of(line)
@@ -290,6 +315,9 @@ def classify_line(line: dict) -> dict:
 
     if _is_fee_name(name, category):
         return _decision("fee")
+
+    if line_amount(line) < 0 and _is_clear_discount(name, description):
+        return _decision("discount")
 
     if _is_film_item(name, category):
         return _decision("film")
@@ -353,12 +381,29 @@ def classify_line(line: dict) -> dict:
     return _decision("ambiguous")
 
 
+def _line_record(line: dict, amount: float, reason: str) -> dict:
+    category = category_of(line).strip()
+    return {
+        "name": str(line.get("name") or ""),
+        "description": _clip(line.get("description")),
+        "amount": amount,
+        "category": category or None,
+        "reason": reason,
+    }
+
+
 def summarize_lines(lines: list[dict]) -> dict:
-    """Sum commissionable lines and list everything left out."""
+    """Sum commissionable lines, list discounts, and list everything left out.
+
+    `commissionableLines` is film, removal, C-Bond, and labor only. Discount
+    lines reduce `commissionable` and are returned in `discounts` so list
+    price is not built from a discount.
+    """
     commissionable = 0.0
     prefee = 0.0
     line_total = 0.0
     excluded: list[dict] = []
+    discounts: list[dict] = []
     kept: list[dict] = []
     decisions: list[dict] = []
     ambiguous = False
@@ -373,18 +418,14 @@ def summarize_lines(lines: list[dict]) -> dict:
             prefee += amount
         if decision["counts"]:
             commissionable += amount
-            kept.append(line)
+            if decision["kind"] == "discount":
+                discounts.append(_line_record(line, amount, decision["reason"]))
+            else:
+                kept.append(line)
         else:
             if decision["kind"] == "ambiguous":
                 ambiguous = True
-            category = category_of(line).strip()
-            excluded.append({
-                "name": str(line.get("name") or ""),
-                "description": _clip(line.get("description")),
-                "amount": amount,
-                "category": category or None,
-                "reason": decision["reason"],
-            })
+            excluded.append(_line_record(line, amount, decision["reason"]))
         decisions.append({
             "name": str(line.get("name") or ""),
             "amount": amount,
@@ -398,6 +439,7 @@ def summarize_lines(lines: list[dict]) -> dict:
         "preFee": money(prefee),
         "lineTotal": money(line_total),
         "excluded": excluded,
+        "discounts": discounts,
         "ambiguous": ambiguous,
         "commissionableLines": kept,
         "decisions": decisions,

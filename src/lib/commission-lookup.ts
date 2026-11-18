@@ -2,7 +2,7 @@ import { findRep, roundMoney, type JobPriceResult } from "@/lib/commission";
 import { booksFreshnessIso } from "@/lib/freshness";
 import { normalizeQuoteNumber } from "@/lib/quotes";
 import { priceSnapshotJob } from "@/lib/snapshot-price";
-import type { CommissionSnapshot, ExcludedLine, SnapshotJob } from "@/lib/types";
+import type { CommissionSnapshot, DiscountLine, ExcludedLine, SnapshotJob } from "@/lib/types";
 
 /** Policy branch names the bot API returns. */
 export type PolicyBranch =
@@ -31,8 +31,8 @@ export type CommissionRecord = {
   reason: string | null;
   /**
    * Amount the commission math uses. Window film, film removal, C-Bond, and
-   * labor-only install. The 4% fee, travel, lifts, and other non-film extras
-   * are not included. Same number as `commissionableAmount`.
+   * labor-only install, minus discounts. The 4% fee, travel, lifts, and other
+   * non-film extras are not included. Same number as `commissionableAmount`.
    */
   preFeeCharged: number | null;
   /** Full Books quote total, including the 4% fee when that line is present. Null when this job has no Books total. */
@@ -41,6 +41,11 @@ export type CommissionRecord = {
   commissionableAmount: number | null;
   /** Lines left out of the commissionable amount, with their Books amounts. */
   excludedLines: ExcludedLine[];
+  /**
+   * Negative discounts already subtracted from the commissionable amount.
+   * Not included in `excludedLines`.
+   */
+  discountLines: DiscountLine[];
   /** False when an unclassified line was left out. */
   commissionableAmountVerified: boolean;
   /** False when Books had no line items and the 4% fee was stripped from the quote total. */
@@ -173,6 +178,7 @@ export function toCommissionRecord(
     quoteAmount: job.quoteAmount ?? null,
     commissionableAmount: price.charged,
     excludedLines: job.excludedLines ?? [],
+    discountLines: job.discountLines ?? [],
     commissionableAmountVerified: job.commissionableAmountVerified !== false,
     lineItemsAvailable: job.lineItemsAvailable !== false,
     listAmount: price.listPrice,

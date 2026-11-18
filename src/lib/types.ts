@@ -8,6 +8,19 @@ export type ExcludedLine = {
   reason: string;
 };
 
+/**
+ * A negative discount already subtracted from the commissionable amount.
+ * Over/Short, Discount, Less X%, military, and similar lines. `amount` is negative.
+ */
+export type DiscountLine = {
+  name: string;
+  description: string;
+  amount: number;
+  category: string | null;
+  /** Always "Discount". */
+  reason: string;
+};
+
 export type SnapshotFilmLine = {
   itemName: string;
   description: string;
@@ -42,8 +55,8 @@ export type SnapshotJob = {
   filmType: string;
   /**
    * Amount commission is calculated on. For a Books job with line items this is
-   * window film, film removal, C-Bond, and labor-only install. Sheet jobs keep
-   * the master-sheet total when Books has no line items.
+   * window film, film removal, C-Bond, and labor-only install, minus discounts.
+   * Sheet jobs keep the master-sheet total when Books has no line items.
    */
   charged: number;
   /** Full Books quote total, including the 4% fee when that line is present. */
@@ -52,6 +65,8 @@ export type SnapshotJob = {
   commissionableAmount?: number | null;
   /** Lines left out of `charged`, including the 4% fee when the quote has one. */
   excludedLines?: ExcludedLine[];
+  /** Negative discounts already subtracted from `charged`. */
+  discountLines?: DiscountLine[];
   /**
    * False when an unclassified line was left out. The job is flagged
    * "commissionable amount not verified".
@@ -102,8 +117,9 @@ export interface CommissionDataSource {
 /**
  * One Books line, the fields a sync must write.
  * `category` is the item custom field cf_category. Commission uses window film,
- * film removal, C-Bond, and labor-only lines. Fees, travel, lifts, and other
- * non-film extras are excluded. See scripts/commissionable_lines.py.
+ * film removal, C-Bond, and labor-only lines, minus negative discounts. Fees,
+ * travel, lifts, and other non-film extras are excluded. See
+ * scripts/commissionable_lines.py.
  */
 export type BooksLineItem = {
   name: string;

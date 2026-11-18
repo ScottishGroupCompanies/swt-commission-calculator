@@ -90,13 +90,13 @@ function parseCatalog(csv) {
   return films;
 }
 
-function mapExcluded(line) {
+function mapPricedLine(line, fallbackReason) {
   return {
     name: line.name || "",
     description: line.description || "",
     amount: num(line.amount) ?? 0,
     category: line.category || null,
-    reason: line.reason || "Not classified",
+    reason: line.reason || fallbackReason,
   };
 }
 
@@ -151,7 +151,12 @@ const jobs = [...(source.jobs || []), ...(supplemental.jobs || [])].map((job) =>
     quoteAmount: job.quoteAmount == null ? null : num(job.quoteAmount),
     commissionableAmount:
       job.commissionableAmount == null ? num(job.charged) : num(job.commissionableAmount),
-    excludedLines: Array.isArray(job.excludedLines) ? job.excludedLines.map(mapExcluded) : [],
+    excludedLines: Array.isArray(job.excludedLines)
+      ? job.excludedLines.map((line) => mapPricedLine(line, "Not classified"))
+      : [],
+    discountLines: Array.isArray(job.discountLines)
+      ? job.discountLines.map((line) => mapPricedLine(line, "Discount"))
+      : [],
     commissionableAmountVerified: job.commissionableAmountVerified !== false,
     lineItemsAvailable: job.lineItemsAvailable !== false,
     estimateId: job.estimateId || null,
@@ -175,7 +180,7 @@ const snapshot = {
   source: "snapshot",
   pricingVersion: "V-10.9",
   booksAsOf: books.fetchedAt,
-  note: "Zoho Books is the source of truth for quote status, accepted date, and salesperson. Commission is paid only when the quote status is accepted or invoiced. Charged amounts are the commissionable portion: window film, film removal, C-Bond, and labor-only install. Fees, travel, lifts, and other non-film extras are excluded. Commission is calculated in the app, not stored in this file.",
+  note: "Zoho Books is the source of truth for quote status, accepted date, and salesperson. Commission is paid only when the quote status is accepted or invoiced. Charged amounts are the commissionable portion: window film, film removal, C-Bond, and labor-only install, minus discounts. Fees, travel, lifts, and other non-film extras are excluded. Commission is calculated in the app, not stored in this file.",
   catalog,
   jobs,
 };

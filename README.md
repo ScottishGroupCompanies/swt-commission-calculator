@@ -6,7 +6,7 @@ This is a calculator, not a payroll report. It does not list every job or total 
 
 ## Commission rules
 
-Owner-confirmed 2026-11-05, with commissionable lines confirmed 2026-11-18. Commission is calculated on window film, film removal, C-Bond, and labor-only install. The 4% fee, travel, mileage, lifts, equipment rental, permits, parking, and other non-film extras are not included. A line that cannot be classified is left out and the job is marked **commissionable amount not verified**. A Books quote with no line items keeps the quote total with 4% removed and is marked **line items not available**.
+Owner-confirmed 2026-11-05, with commissionable lines confirmed 2026-11-18. Commission is calculated on window film, film removal, C-Bond, and labor-only install, minus discounts (Over/Short, Discount, Less X%, military, and similar negative lines). The 4% fee, travel, mileage, lifts, equipment rental, permits, parking, and other non-film extras are not included. A line that cannot be classified is left out and the job is marked **commissionable amount not verified**. A discount does not raise that flag. A Books quote with no line items keeps the quote total with 4% removed and is marked **line items not available**.
 
 Only these reps earn commission:
 
@@ -118,7 +118,7 @@ Each line item:
 | `unit` | yes | Books unit, e.g. `sf`. Empty string when Books has none. |
 | `category` | yes | Item custom field `cf_category`, or `null`. `Fee` marks the 4% fee line. A name containing “fee” is also treated as the fee. `Material - Film` is window film. |
 
-The commissionable amount is the sum of line totals that count: window film, film removal, C-Bond, and labor-only install. Fees, travel, lifts, permits, parking, and other non-film extras are excluded. A line that matches none of those rules is excluded and the job is flagged commissionable amount not verified. The rules are in [`scripts/commissionable_lines.py`](scripts/commissionable_lines.py). With no line items, charged is the Books total divided by 1.04 and the job is flagged line items not available. List price is catalog sell $/SF × billed square feet, plus removal and C-Bond when the description says so. That list is compared with the commissionable amount. The page label and the bot API `fetchedAt` use the later of `fetchedAt` and the job export time.
+The commissionable amount is the sum of line totals that count: window film, film removal, C-Bond, and labor-only install, minus negative discounts. Fees, travel, lifts, permits, parking, and other non-film extras are excluded. A line that matches none of those rules is excluded and the job is flagged commissionable amount not verified. A negative Over/Short, Discount, Less X%, or military line is a discount: it is subtracted and the job stays verified. The rules are in [`scripts/commissionable_lines.py`](scripts/commissionable_lines.py). With no line items, charged is the Books total divided by 1.04 and the job is flagged line items not available. List price is catalog sell $/SF × billed square feet, plus removal and C-Bond when the description says so. Discount lines are not film and are not part of that list. That list is compared with the commissionable amount. The page label and the bot API `fetchedAt` use the later of `fetchedAt` and the job export time.
 
 ```bash
 npm run data:build

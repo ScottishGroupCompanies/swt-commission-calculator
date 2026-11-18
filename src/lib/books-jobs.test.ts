@@ -83,6 +83,7 @@ function toSnapshotJob(job: {
   quoteAmount?: number | null;
   commissionableAmount?: number | null;
   excludedLines?: Array<{ name: string; description: string; amount: number; category: string | null; reason: string }>;
+  discountLines?: Array<{ name: string; description: string; amount: number; category: string | null; reason: string }>;
   commissionableAmountVerified?: boolean;
   lineItemsAvailable?: boolean;
   estimateId: string | null;
@@ -118,6 +119,7 @@ function toSnapshotJob(job: {
     quoteAmount: job.quoteAmount,
     commissionableAmount: job.commissionableAmount,
     excludedLines: job.excludedLines,
+    discountLines: job.discountLines,
     commissionableAmountVerified: job.commissionableAmountVerified,
     lineItemsAvailable: job.lineItemsAvailable,
     estimateId: job.estimateId,
@@ -261,6 +263,19 @@ function buildFixtureJobs() {
           lineItems: [],
           total: 208,
         }),
+        estimate({
+          estimateId: "discount",
+          estimateNumber: "WT-03910-QT01",
+          customerName: "Military Discount Co",
+          salesperson: "Blake Parish",
+          status: "accepted",
+          lineItems: [
+            atList,
+            extraLine("Over/Short", "Less 5% Military", -14.63, "Material - Other"),
+            feeLine(11.12),
+          ],
+          total: 289.01,
+        }),
       ],
     }),
   );
@@ -371,6 +386,7 @@ describe("Books estimates become jobs", () => {
     expect(job!.commissionableAmountVerified).toBe(true);
     expect(job!.excludedLines).toEqual([]);
     expect(job!.films).toEqual([]);
+    expect(job!.discountLines).toEqual([]);
     expect(built.missingLineItems).toContain("WT-03909-QT01");
     const price = priceSnapshotJob(job!);
     expect(price.charged).toBe(200);
@@ -483,10 +499,63 @@ describe("backfilled Books jobs in the snapshot", () => {
     expect(trip.commissionableAmountVerified).toBe(true);
 
     const discount = byEstimate("WT-03643-QT01");
-    expect(discount.charged).toBe(12100.05);
-    expect(discount.commissionableAmountVerified).toBe(false);
-    expect(discount.excludedLines?.some((line) => line.reason === "Not classified" && line.amount === -605)).toBe(
-      true,
-    );
+    expect(discount.salesperson).toBe("Blake Parish");
+    expect(discount.charged).toBe(11495.05);
+    expect(discount.commissionableAmount).toBe(11495.05);
+    expect(discount.commissionableAmountVerified).toBe(true);
+    expect(discount.films.map((film) => film.itemName)).toEqual(["Security Film"]);
+    expect(discount.discountLines).toEqual([
+      expect.objectContaining({
+        name: "Over/Short",
+        description: "Less 5% Military",
+        amount: -605,
+        reason: "Discount",
+      }),
+    ]);
+    expect(discount.excludedLines?.map((line) => [line.name, line.amount, line.reason])).toEqual([
+      ["Fee", 459.8, "Fee"],
+    ]);
+    const discountPrice = priceSnapshotJob(discount);
+    expect(discountPrice.listVerified).toBe(false);
+    expect(discountPrice.commission).toBe(1724.26);
+    expect(policyForJob(discount, discountPrice).policy).toBe("list not verified");
+
+    const western = byEstimate("WT-03079-QT01");
+    expect(western.charged).toBe(2094.99);
+    expect(western.commissionableAmountVerified).toBe(true);
+    expect(western.discountLines?.map((line) => [line.name, line.amount, line.reason])).toEqual([
+      ["Solar Film", -110.26, "Discount"],
+    ]);
+    expect(western.films.map((film) => film.itemName)).toEqual(["Solar Film", "Film Removal"]);
+    expect(priceSnapshotJob(western).commission).toBe(roundMoney(0.05 * 2094.99));
+
+    expect(byEstimate("WT-02899").charged).toBe(7162.07);
+    expect(byEstimate("WT-02899").discountLines?.map((line) => line.amount)).toEqual([-539.08]);
+    expect(byEstimate("WT-02623").charged).toBe(1989.73);
+    expect(byEstimate("WT-02623").discountLines?.map((line) => line.amount)).toEqual([-104.73]);
+  });
+});
+
+describe("Books discount lines", () => {
+  const built = buildFixtureJobs();
+
+  it("subtracts a military discount from commissionable and keeps list on the film", () => {
+    const raw = built.jobs.find((job) => job.estimateNumber === "WT-03910-QT01");
+    expect(raw?.charged).toBe(277.89);
+    expect(raw?.commissionableAmountVerified).toBe(true);
+    expect(raw?.discountLines).toEqual([
+      expect.objectContaining({ name: "Over/Short", amount: -14.63, reason: "Discount" }),
+    ]);
+    expect(raw?.excludedLines?.map((line) => line.reason)).toEqual(["Fee"]);
+    const job = toSnapshotJob(raw!);
+    expect(job.films).toHaveLength(1);
+    expect(job.films[0]?.itemName).toBe("Solar Film");
+    const price = priceSnapshotJob(job);
+    expect(price.listPrice).toBe(292.52);
+    expect(price.listVerified).toBe(true);
+    expect(price.charged).toBe(277.89);
+    expect(price.belowFloor).toBe(false);
+    expect(price.commission).toBe(36.56);
+    expect(policyForJob(job, price).policy).toBe("undersold <10%");
   });
 });

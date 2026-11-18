@@ -202,6 +202,34 @@ describe("commission lookup", () => {
       ["Attachment", 7273.33, "Non-film extra"],
       ["Fee (No Tax)", 706.75, "Fee"],
     ]);
+    expect(withExtras.body.discountLines).toEqual([]);
+
+    const military = await lookup("/api/v1/commission?estimate=WT-03643-QT01");
+    expect(military.body).toMatchObject({
+      estimateNumber: "WT-03643-QT01",
+      customer: "Lynn Ottinger",
+      rep: "Blake Parish",
+      repName: "Blake Parish",
+      rate: 0.15,
+      status: "accepted",
+      commissionable: true,
+      preFeeCharged: 11495.05,
+      commissionableAmount: 11495.05,
+      commission: 1724.26,
+      policy: "list not verified",
+      commissionableAmountVerified: true,
+    });
+    expect(military.body.discountLines).toEqual([
+      expect.objectContaining({
+        name: "Over/Short",
+        description: "Less 5% Military",
+        amount: -605,
+        reason: "Discount",
+      }),
+    ]);
+    expect(military.body.excludedLines.map((line) => [line.name, line.amount, line.reason])).toEqual([
+      ["Fee", 459.8, "Fee"],
+    ]);
 
     const outsider = await lookup("/api/v1/commission?estimate=WT-02536-QT01");
     expect(outsider.body.policy).toBe("not an earner");

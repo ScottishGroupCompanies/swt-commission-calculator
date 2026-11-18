@@ -179,6 +179,10 @@ export function Calculator({
   );
   const dirty = selected ? edits[selected.id] != null : false;
   const rateLabel = formatRate(rep.rate);
+  const discountLines = selected?.discountLines ?? [];
+  const discountTotal = discountLines.length
+    ? roundMoney(discountLines.reduce((sum, line) => sum + line.amount, 0))
+    : 0;
 
   function updateEdit(job: SnapshotJob, recipe: (current: JobEdit) => JobEdit) {
     setEdits((prev) => {
@@ -595,6 +599,12 @@ export function Calculator({
                 <dt>Commissionable</dt>
                 <dd>{formatMoney(live.charged)}</dd>
               </div>
+              {discountLines.length > 0 ? (
+                <div>
+                  <dt>Discounts</dt>
+                  <dd className="neg">{formatMoney(discountTotal)}</dd>
+                </div>
+              ) : null}
               <div>
                 <dt>Over / under</dt>
                 <dd className={live.difference != null && live.difference < 0 ? "neg" : undefined}>
@@ -606,6 +616,22 @@ export function Calculator({
                 <dd>{rateLabel}</dd>
               </div>
             </dl>
+            {discountLines.length > 0 ? (
+              <div className="excluded">
+                <h3>Discounts</h3>
+                <p className="hint">Already subtracted from the commissionable amount.</p>
+                <ul>
+                  {discountLines.map((line, index) => (
+                    <li key={`${line.name}-${index}`}>
+                      <span className="excluded-name">{line.name || "Discount"}</span>
+                      <span className="excluded-amount neg">{formatMoney(line.amount)}</span>
+                      <span className="excluded-reason">{line.reason}</span>
+                      {line.description ? <span className="excluded-desc">{line.description}</span> : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             {selected.excludedLines && selected.excludedLines.length > 0 ? (
               <div className="excluded">
                 <h3>Excluded from commission</h3>
@@ -630,9 +656,11 @@ export function Calculator({
         <p>
           Only Dana (7%), Amy (5%), Blake (15%), Scott (15%), and John (15%) earn commission.
           Commission is calculated on the commissionable amount: window film, film removal, C-Bond,
-          and labor-only install. Travel, mileage, lifts, equipment rental, the 4% fee, permits,
-          parking, and other non-film extras are excluded. A line that cannot be classified is
-          excluded and the job is marked commissionable amount not verified. A quote with no line
+          and labor-only install, minus discounts such as Over/Short, military, and Less X%.
+          Travel, mileage, lifts, equipment rental, the 4% fee, permits, parking, and other
+          non-film extras are excluded. A line that cannot be classified is excluded and the job
+          is marked commissionable amount not verified. A discount does not raise that flag. A
+          quote with no line
           items keeps the quote total with the 4% fee removed and is marked line items not
           available. If the commissionable amount is at or above list, commission is the rate times
           that amount. Example: list $1,000 at 5%, sold for $1,100, pays $55. If the job is
