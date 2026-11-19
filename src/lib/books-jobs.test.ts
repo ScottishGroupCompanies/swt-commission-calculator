@@ -454,7 +454,7 @@ describe("backfilled Books jobs in the snapshot", () => {
     const barbeque = byEstimate("WT-03638-QT01");
     expect(barbeque.client).toBe("Barbeques Galore");
     expect(barbeque.salesperson).toBe("Amy Haley");
-    expect(barbeque.quoteStatus).toBe("accepted");
+    expect(barbeque.quoteStatus).toBe("invoiced");
     expect(barbeque.acceptedDate).toBe("2026-11-17");
     expect(barbeque.charged).toBe(1125);
     const barbequePrice = priceSnapshotJob(barbeque);
