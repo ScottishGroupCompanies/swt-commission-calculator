@@ -417,7 +417,7 @@ describe("bundled snapshot jobs", () => {
   });
 
   it("pays nothing on a Books quote that was only sent", () => {
-    const sent = job("WT-03130");
+    const sent = job("WT-03651");
     expect(sent.quoteStatus).toBe("sent");
     expect(sent.salesperson).toBe("Amy Haley");
     expect(sent.acceptedDate).toBeNull();

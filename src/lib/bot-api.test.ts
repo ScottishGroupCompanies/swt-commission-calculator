@@ -186,7 +186,7 @@ describe("commission lookup", () => {
     const shortQuote = await lookup("/api/v1/commission?quote=WT-03533");
     expect(shortQuote.body.jobId).toBe(helibrun.body.jobId);
 
-    const sent = await lookup("/api/v1/commission?estimate=WT-03130-QT01");
+    const sent = await lookup("/api/v1/commission?estimate=WT-03651-QT01");
     expect(sent.body.policy).toBe("not accepted");
     expect(sent.body.commissionable).toBe(false);
     expect(sent.body.commission).toBe(0);
