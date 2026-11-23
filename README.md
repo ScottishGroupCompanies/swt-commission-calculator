@@ -29,11 +29,11 @@ List price is V-10.9 catalog sell $/SF × billed square feet, plus removal ($1.2
 
 The math lives in [`src/lib/commission.ts`](src/lib/commission.ts). A future per-rep dashboard should import `priceJob` from that module instead of reimplementing it. [`scripts/engine/commission.py`](scripts/engine/commission.py) is the same policy for the data builder.
 
-Only an admin login can mark a job **Paid by credit card**. Kelly and Sarah see the checkbox, the fee, and the adjusted commission, and cannot change it. The mark is stored in the same private Vercel Blob store as the usage log, under the prefix `swt-commission-flags/`, keyed by job number (or the estimate number when the job has no separate job number). Each object records who changed it and when. It is not in this repository. Toggling recalculates in the browser immediately and is still there after the 30-minute snapshot rebuild, because the rebuild does not write that prefix.
+Kelly, Sarah, and Admin can mark a job **Paid by credit card**. The mark is stored in the same private Vercel Blob store as the usage log, under the prefix `swt-commission-flags/`, keyed by job number (or the estimate number when the job has no separate job number). Each object records who changed it and when. It is not in this repository. Toggling recalculates in the browser immediately and is still there after the 30-minute snapshot rebuild, because the rebuild does not write that prefix.
 
 ## Sign in
 
-The calculator is behind a login. The name dropdown lists **Kelly** (code `1234`), **Sarah** (code `7807`), and **Admin** (code `1234`). Admin uses the same calculator as the other names. Codes are stored as scrypt hashes in [`src/lib/auth/users.ts`](src/lib/auth/users.ts), not as plaintext.
+The calculator is behind a login. The name dropdown lists **Kelly** (code `1234`), **Sarah** (code `7807`), and **Admin** (code `1234`). Kelly, Sarah, and Admin share the same calculator, including the credit-card mark, manager approval, and API usage. Codes are stored as scrypt hashes in [`src/lib/auth/users.ts`](src/lib/auth/users.ts), not as plaintext.
 
 Change one password:
 

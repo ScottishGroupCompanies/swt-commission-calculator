@@ -168,7 +168,7 @@ Every API call writes one JSON line to the Vercel runtime log (`source` is `swt-
 
 Every `POST /api/login` writes the same kind of line with the name that was chosen and whether sign-in succeeded. The code is not stored.
 
-Admin session only:
+Kelly, Sarah, and Admin can open this log.
 
 - Page: `/admin/usage` (newest first)
 - JSON: `GET /api/admin/usage`
@@ -177,8 +177,8 @@ The log is not in the repository.
 
 ## Credit card flags
 
-An admin marks a job paid by credit card on the calculator. Kelly and Sarah can see the mark and the deduction. They cannot change it.
+Kelly, Sarah, and Admin can mark a job paid by credit card on the calculator. `updatedBy` is the name of the person who saved it.
 
 Each mark is one private Blob object under `swt-commission-flags/` in the same Vercel Blob store as `usage/`. The object name is the job number when the job has one that is different from its estimate (`F240464.json`), otherwise the estimate number (`WT-03533-QT01.json`). The JSON records `paidByCreditCard`, `updatedBy`, `updatedAt`, and the estimate, job number, quote, and snapshot id that were current when it was saved. The snapshot rebuild does not write this prefix, so a 30-minute data sync leaves the marks in place.
 
-`GET /api/commission-flags` (any signed-in user) returns `{ "flags": { "<key>": { ... } } }`. `POST /api/commission-flags` with `{ "jobId", "paidByCreditCard" }` is admin only. The bot API does not accept the flag as an input. It reads the stored mark and returns `paidByCreditCard`, `creditCardFee`, and `adjustedCommission`.
+`GET /api/commission-flags` (any signed-in user) returns `{ "flags": { "<key>": { ... } } }`. `POST /api/commission-flags` with `{ "jobId", "paidByCreditCard" }` is limited to Kelly, Sarah, and Admin. The bot API does not accept the flag as an input. It reads the stored mark and returns `paidByCreditCard`, `creditCardFee`, and `adjustedCommission`.

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isAdmin } from "@/lib/auth/access";
 import { readSession, SESSION_COOKIE } from "@/lib/auth/session";
 import { creditCardFlagKey } from "@/lib/credit-card-flag";
 import { readCreditCardFlags, writeCreditCardFlag } from "@/lib/credit-card-flags";
@@ -21,10 +22,6 @@ function sessionUsername(request: Request): string | null {
   if (!pair) return null;
   const token = decodeURIComponent(pair.slice(SESSION_COOKIE.length + 1));
   return readSession(token)?.username ?? null;
-}
-
-function isAdmin(username: string): boolean {
-  return username.toLowerCase() === "admin";
 }
 
 export async function GET(request: Request) {

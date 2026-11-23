@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { ScottishLogo } from "@/components/ScottishLogo";
+import { isAdmin } from "@/lib/auth/access";
 import { readSession, SESSION_COOKIE } from "@/lib/auth/session";
 import { readRecentUsage, type UsageEvent } from "@/lib/usage-log";
 
@@ -19,12 +20,12 @@ function who(event: UsageEvent): string {
 export default async function UsagePage() {
   const jar = await cookies();
   const session = readSession(jar.get(SESSION_COOKIE)?.value);
-  if (!session || session.username.toLowerCase() !== "admin") {
+  if (!session || !isAdmin(session.username)) {
     return (
       <main className="login">
         <ScottishLogo height={64} />
         <h1>Admin only</h1>
-        <p className="lede">Sign in as Admin to view bot API usage.</p>
+        <p className="lede">Sign in as Kelly, Sarah, or Admin to view bot API usage.</p>
         <p>
           <a className="text-btn" href="/">
             Back to the calculator

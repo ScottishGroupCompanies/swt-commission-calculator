@@ -13,6 +13,7 @@ import {
 } from "@/lib/commission";
 import { booksDataLabel } from "@/lib/freshness";
 import { formatMoney, formatRate, formatSell } from "@/lib/format";
+import { isAdmin } from "@/lib/auth/access";
 import { creditCardFlagKey, flagForJob, type StoredCreditCardFlag } from "@/lib/credit-card-flag";
 import { isSoldQuoteStatus, quoteMatches } from "@/lib/quotes";
 import { priceSnapshotJob } from "@/lib/snapshot-price";
@@ -164,7 +165,7 @@ export function Calculator({
   const [flagError, setFlagError] = useState<string | null>(null);
   const [savingJobId, setSavingJobId] = useState<string | null>(null);
   const saveSeq = useRef<Record<string, number>>({});
-  const isAdmin = username.toLowerCase() === "admin";
+  const admin = isAdmin(username);
 
   useEffect(() => {
     let cancelled = false;
@@ -251,7 +252,7 @@ export function Calculator({
       ...current,
       [key]: {
         paidByCreditCard: nextPaid,
-        updatedBy: username || "admin",
+        updatedBy: username,
         updatedAt: new Date().toISOString(),
         estimateNumber: job.estimateNumber,
         jobNumber: job.jobNumber,
@@ -302,7 +303,7 @@ export function Calculator({
         <div className="mast-top">
           <ScottishLogo />
           <div className="mast-actions">
-            {username.toLowerCase() === "admin" ? (
+            {admin ? (
               <a className="text-btn" href="/admin/usage">
                 API usage
               </a>
@@ -647,11 +648,11 @@ export function Calculator({
               </div>
               <div className="field">
                 <span className="check-caption">Payment</span>
-                <label className={isAdmin ? "approval" : "approval locked"}>
+                <label className={admin ? "approval" : "approval locked"}>
                   <input
                     type="checkbox"
                     checked={paidByCreditCard}
-                    disabled={!isAdmin || flagsStatus !== "ready" || savingJobId === selected.id}
+                    disabled={!admin || flagsStatus !== "ready" || savingJobId === selected.id}
                     onChange={(event) => setPaidByCard(selected, event.target.checked)}
                   />
                   Paid by credit card
@@ -669,7 +670,7 @@ export function Calculator({
                     checkbox does not change the commission.
                   </p>
                 ) : null}
-                {!isAdmin ? (
+                {!admin ? (
                   <p className="hint">Only an admin can change this. The fee still shows here.</p>
                 ) : null}
                 {flagForJob(selected, flags) ? (
