@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { isAdmin } from "./access";
 import { createSessionToken, readSession } from "./session";
 import { authenticate, LOGIN_OPTIONS, verifyPassword } from "./users";
 
@@ -25,6 +26,18 @@ describe("passwords", () => {
     expect(authenticate("Kelly", "12345")).toBeNull();
     expect(authenticate("Jenny", "1234")).toBeNull();
     expect(verifyPassword("1234", "not-a-hash")).toBe(false);
+  });
+});
+
+describe("admin users", () => {
+  it("treats Kelly, Sarah, and admin as admins, and nobody else", () => {
+    for (const name of ["Kelly", "kelly", "Sarah", "SARAH", "admin", "Admin"]) {
+      expect(isAdmin(name)).toBe(true);
+    }
+    expect(isAdmin("Jenny")).toBe(false);
+    expect(isAdmin("")).toBe(false);
+    expect(isAdmin(null)).toBe(false);
+    expect(isAdmin(undefined)).toBe(false);
   });
 });
 

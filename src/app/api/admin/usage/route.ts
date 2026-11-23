@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isAdmin } from "@/lib/auth/access";
 import { readSession, SESSION_COOKIE } from "@/lib/auth/session";
 import { readRecentUsage } from "@/lib/usage-log";
 
@@ -19,7 +20,7 @@ export async function GET(request: Request) {
   if (!username) {
     return NextResponse.json({ error: "Sign in required." }, { status: 401 });
   }
-  if (username.toLowerCase() !== "admin") {
+  if (!isAdmin(username)) {
     return NextResponse.json({ error: "Admin only." }, { status: 403 });
   }
   const events = await readRecentUsage(100);

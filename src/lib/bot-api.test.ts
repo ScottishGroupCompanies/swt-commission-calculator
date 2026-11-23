@@ -487,13 +487,26 @@ describe("usage logging", () => {
     expect(allowRequest("invalid:test", rateLimits.invalidPerMinute)).toBe(false);
   });
 
-  it("rejects a non-admin session on the usage route", async () => {
+  it("lets Kelly and Sarah read usage and rejects everyone else", async () => {
     const anonymous = await usageGet(new Request("http://localhost/api/admin/usage"));
     expect(anonymous.status).toBe(401);
-    const kelly = createSessionToken("Kelly");
+
+    for (const name of ["Kelly", "Sarah", "admin"]) {
+      const token = createSessionToken(name);
+      const allowed = await usageGet(
+        new Request("http://localhost/api/admin/usage", {
+          headers: { cookie: `${SESSION_COOKIE}=${token}` },
+        }),
+      );
+      expect(allowed.status).toBe(200);
+      const body = (await allowed.json()) as { events: unknown };
+      expect(Array.isArray(body.events)).toBe(true);
+    }
+
+    const stranger = createSessionToken("Jenny");
     const forbidden = await usageGet(
       new Request("http://localhost/api/admin/usage", {
-        headers: { cookie: `${SESSION_COOKIE}=${kelly}` },
+        headers: { cookie: `${SESSION_COOKIE}=${stranger}` },
       }),
     );
     expect(forbidden.status).toBe(403);

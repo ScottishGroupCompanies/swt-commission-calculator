@@ -74,38 +74,44 @@ describe("credit card flag keys", () => {
   });
 });
 
+type SavedFlagResponse = {
+  key: string;
+  flag: { paidByCreditCard: boolean; updatedBy: string; updatedAt: string; jobNumber: string };
+};
+
 describe("credit card flag route", () => {
-  it("lets an admin save a flag and lets Kelly read it without changing it", async () => {
+  it("lets Kelly, Sarah, and admin save a flag and records who saved it", async () => {
     const target = job("WT-03643");
     const anonymous = await GET(new Request("http://localhost/api/commission-flags"));
     expect(anonymous.status).toBe(401);
 
-    const kellySave = await POST(
+    const stranger = await POST(
       new Request("http://localhost/api/commission-flags", {
         method: "POST",
-        headers: { cookie: cookie("Kelly"), "content-type": "application/json" },
+        headers: { cookie: cookie("Jenny"), "content-type": "application/json" },
         body: JSON.stringify({ jobId: target.id, paidByCreditCard: true }),
       }),
     );
-    expect(kellySave.status).toBe(403);
+    expect(stranger.status).toBe(403);
 
-    const saved = await POST(
-      new Request("http://localhost/api/commission-flags", {
-        method: "POST",
-        headers: { cookie: cookie("admin"), "content-type": "application/json" },
-        body: JSON.stringify({ jobId: target.id, paidByCreditCard: true }),
-      }),
-    );
-    expect(saved.status).toBe(200);
-    const body = (await saved.json()) as {
-      key: string;
-      flag: { paidByCreditCard: boolean; updatedBy: string; updatedAt: string; jobNumber: string };
-    };
-    expect(body.key).toBe(creditCardFlagKey(target));
-    expect(body.flag.paidByCreditCard).toBe(true);
-    expect(body.flag.updatedBy).toBe("admin");
-    expect(Number.isNaN(Date.parse(body.flag.updatedAt))).toBe(false);
-    expect(body.flag.jobNumber).toBe(target.jobNumber);
+    let body: SavedFlagResponse | null = null;
+    for (const name of ["Kelly", "Sarah", "admin"] as const) {
+      const saved = await POST(
+        new Request("http://localhost/api/commission-flags", {
+          method: "POST",
+          headers: { cookie: cookie(name), "content-type": "application/json" },
+          body: JSON.stringify({ jobId: target.id, paidByCreditCard: name !== "Sarah" }),
+        }),
+      );
+      expect(saved.status).toBe(200);
+      body = (await saved.json()) as SavedFlagResponse;
+      expect(body.key).toBe(creditCardFlagKey(target));
+      expect(body.flag.paidByCreditCard).toBe(name !== "Sarah");
+      expect(body.flag.updatedBy).toBe(name);
+      expect(Number.isNaN(Date.parse(body.flag.updatedAt))).toBe(false);
+      expect(body.flag.jobNumber).toBe(target.jobNumber);
+    }
+    if (!body) throw new Error("flag was not saved");
 
     const listed = await GET(
       new Request("http://localhost/api/commission-flags", { headers: { cookie: cookie("Kelly") } }),
