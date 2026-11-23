@@ -74,6 +74,11 @@ describe("credit card flag keys", () => {
   });
 });
 
+type SavedFlagResponse = {
+  key: string;
+  flag: { paidByCreditCard: boolean; updatedBy: string; updatedAt: string; jobNumber: string };
+};
+
 describe("credit card flag route", () => {
   it("lets Kelly, Sarah, and admin save a flag and records who saved it", async () => {
     const target = job("WT-03643");
@@ -89,10 +94,7 @@ describe("credit card flag route", () => {
     );
     expect(stranger.status).toBe(403);
 
-    let body: {
-      key: string;
-      flag: { paidByCreditCard: boolean; updatedBy: string; updatedAt: string; jobNumber: string };
-    } | null = null;
+    let body: SavedFlagResponse | null = null;
     for (const name of ["Kelly", "Sarah", "admin"] as const) {
       const saved = await POST(
         new Request("http://localhost/api/commission-flags", {
@@ -102,7 +104,7 @@ describe("credit card flag route", () => {
         }),
       );
       expect(saved.status).toBe(200);
-      body = (await saved.json()) as NonNullable<typeof body>;
+      body = (await saved.json()) as SavedFlagResponse;
       expect(body.key).toBe(creditCardFlagKey(target));
       expect(body.flag.paidByCreditCard).toBe(name !== "Sarah");
       expect(body.flag.updatedBy).toBe(name);
